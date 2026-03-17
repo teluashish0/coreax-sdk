@@ -1,11 +1,11 @@
-<h1 align="center">sec0</h1>
+<h1 align="center">sec0-sdk</h1>
 
 <p align="center"><strong>Securing Rogue Agents</strong></p>
 <p align="center"><em>Open-source runtime governance and trajectory curation layer for safe RL-driven orchestrations</em></p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/sec0"><img src="https://img.shields.io/npm/v/sec0" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/sec0"><img src="https://img.shields.io/npm/dm/sec0" alt="npm downloads"></a>
+  <a href="https://www.npmjs.com/package/sec0-sdk"><img src="https://img.shields.io/npm/v/sec0-sdk" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/sec0-sdk"><img src="https://img.shields.io/npm/dm/sec0-sdk" alt="npm downloads"></a>
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="license">
   <a href="https://app.sec0.ai/"><img src="https://img.shields.io/badge/Dashboard-app.sec0.ai-22c55e" alt="dashboard"></a>
 </p>
@@ -26,9 +26,9 @@ Sec0 is an open-source SDK and runtime infrastructure for governing AI workflows
 
 **Prerequisites:** Node >= 20.
 
-Install in an app (after `sec0` is published):
+Install in an app:
 ```bash
-npm install sec0
+npm install sec0-sdk
 ```
 
 Build from this repository:
@@ -83,9 +83,9 @@ Field notes:
 
 Wrap your server:
 ```typescript
-import { sec0SecurityMiddleware } from "sec0/middleware";
-import { LocalDevSigner } from "sec0/signer";
-import { parsePolicyYaml } from "sec0/policy";
+import { sec0SecurityMiddleware } from "sec0-sdk/middleware";
+import { LocalDevSigner } from "sec0-sdk/signer";
+import { parsePolicyYaml } from "sec0-sdk/policy";
 import fs from "node:fs";
 
 const server = createYourMcpServer();
@@ -253,7 +253,7 @@ controlPlane:
 
 Initialize and decorate:
 ```typescript
-import { initializeSec0App, sec0, AgentManager } from "sec0/instrumentation";
+import { initializeSec0App, sec0, AgentManager } from "sec0-sdk/instrumentation";
 
 initializeSec0App("./sec0.config.yaml");
 
@@ -283,7 +283,7 @@ class Workflow {
 
 For cross-network tool calls:
 ```typescript
-import { callToolViaGateway } from "sec0/middleware";
+import { callToolViaGateway } from "sec0-sdk/middleware";
 
 const out = await callToolViaGateway({
   gatewayBaseUrl: "https://YOUR_GATEWAY_DOMAIN",
@@ -304,10 +304,10 @@ const out = await callToolViaGateway({
 ### 4. Start a Gateway Server
 
 ```typescript
-import { startGatewayServer } from "sec0/gateway";
-import { InMemoryAdapter } from "sec0/gateway";
-import { Sec0Appender } from "sec0/audit";
-import { LocalDevSigner } from "sec0/signer";
+import { startGatewayServer } from "sec0-sdk/gateway";
+import { InMemoryAdapter } from "sec0-sdk/gateway";
+import { Sec0Appender } from "sec0-sdk/audit";
+import { LocalDevSigner } from "sec0-sdk/signer";
 
 const signer = LocalDevSigner.fromKeyRef("file://./.sec0/keys/ed25519.key");
 const appender = new Sec0Appender({ config: { dir: ".sec0" }, signer });
@@ -500,31 +500,31 @@ observability:
 
 | Subpath | Description |
 |---------|-------------|
-| `sec0/guard` | High-level guard API for standalone/dashboard/hybrid checks with optional escalation lifecycle |
-| `sec0/instrumentation` | Hop-aware decorators + config-driven identity/state propagation for agents/orchestrators/tools |
-| `sec0/gateway` | Cross-network gateway: authn/z, entitlements, quotas, vendor token brokering, dedupe/idempotency, audit |
-| `sec0/middleware` | Runtime policy enforcement + audit envelopes for tool servers |
-| `sec0/audit` | Append-only NDJSON writer with daily rotation and optional presigned uploads |
-| `sec0/signer` | Ed25519 signing/verification and deterministic JSON canonicalization |
-| `sec0/agent-state` | Canonical, header-safe agent state encoding/decoding + analytics conventions |
-| `sec0/policy` | Policy schema + YAML parsing and validation |
-| `sec0/mandate-ap2` | AP2 mandate verification helpers for multi-hop enforcement |
-| `sec0/otel` | OpenTelemetry helpers |
-| `sec0/integrations/openclaw` | Host integrations (Moltbot adapters) |
+| `sec0-sdk/guard` | High-level guard API for standalone/dashboard/hybrid checks with optional escalation lifecycle |
+| `sec0-sdk/instrumentation` | Hop-aware decorators + config-driven identity/state propagation for agents/orchestrators/tools |
+| `sec0-sdk/gateway` | Cross-network gateway: authn/z, entitlements, quotas, vendor token brokering, dedupe/idempotency, audit |
+| `sec0-sdk/middleware` | Runtime policy enforcement + audit envelopes for tool servers |
+| `sec0-sdk/audit` | Append-only NDJSON writer with daily rotation and optional presigned uploads |
+| `sec0-sdk/signer` | Ed25519 signing/verification and deterministic JSON canonicalization |
+| `sec0-sdk/agent-state` | Canonical, header-safe agent state encoding/decoding + analytics conventions |
+| `sec0-sdk/policy` | Policy schema + YAML parsing and validation |
+| `sec0-sdk/mandate-ap2` | AP2 mandate verification helpers for multi-hop enforcement |
+| `sec0-sdk/otel` | OpenTelemetry helpers |
+| `sec0-sdk/integrations/openclaw` | Host integrations (Moltbot adapters) |
 
 
 ---
 
 ## Guard API
 
-Add `sec0/guard` after the core SDK setup above when the side effect lives in application code instead of inside middleware or the gateway. Typical cases are outbound Discord/Slack/email messages, direct `fetch(...)` calls, or tool invocations triggered outside an MCP server. The integration flow matches the rest of the SDK: create one guard at startup, point it at policy, then wrap the risky action where it happens.
+Add `sec0-sdk/guard` after the core SDK setup above when the side effect lives in application code instead of inside middleware or the gateway. Typical cases are outbound Discord/Slack/email messages, direct `fetch(...)` calls, or tool invocations triggered outside an MCP server. The integration flow matches the rest of the SDK: create one guard at startup, point it at policy, then wrap the risky action where it happens.
 
 ### 5. Create a Guard Once at App Startup
 
 Start with a local rule set for the fastest integration:
 
 ```typescript
-import { createSec0Guard } from "sec0/guard";
+import { createSec0Guard } from "sec0-sdk/guard";
 
 const guard = createSec0Guard({
   mode: "standalone",
@@ -613,7 +613,7 @@ This is the easiest production setup when you want centrally managed policy but 
 import {
   createApprovalsBridgeTransport,
   createSec0Guard,
-} from "sec0/guard";
+} from "sec0-sdk/guard";
 
 const guard = createSec0Guard({
   mode: "dashboard",
@@ -640,13 +640,13 @@ const guard = createSec0Guard({
 });
 ```
 
-Use [`packages/approvals-bridge`](../approvals-bridge/README.md) for the reference Discord/Telegram approvals worker, or replace the transport with your own adapter. If you are integrating OpenClaw/Moltbot, pair your host hooks with `createMoltbotEscalationManager(...)` from `sec0/integrations/openclaw` instead of re-implementing create/poll/wait logic in the app.
+Use [`packages/approvals-bridge`](../approvals-bridge/README.md) for the reference Discord/Telegram approvals worker, or replace the transport with your own adapter. If you are integrating OpenClaw/Moltbot, pair your host hooks with `createMoltbotEscalationManager(...)` from `sec0-sdk/integrations/openclaw` instead of re-implementing create/poll/wait logic in the app.
 
 ### Integration Notes
 
 - Start with `standalone` while wiring Guard into the call sites that own the side effect.
 - Switch to `dashboard` or `hybrid` later without rewriting your `guard.execute(...)` calls.
-- Keep `sec0/middleware` for MCP/tool-server enforcement and use `sec0/guard` for app-level side effects that happen outside those boundaries.
+- Keep `sec0-sdk/middleware` for MCP/tool-server enforcement and use `sec0-sdk/guard` for app-level side effects that happen outside those boundaries.
 
 ---
 

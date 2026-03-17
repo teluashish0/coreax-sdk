@@ -11,9 +11,9 @@ npm install sec0-sdk
 ## Usage
 
 ```js
-const sec0 = require("sec0-sdk");
+const sec0Sdk = require("sec0-sdk");
 
-console.log(sec0);
+console.log(sec0Sdk);
 ```
 
 Output:
