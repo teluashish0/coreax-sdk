@@ -1,7 +1,7 @@
 {
-  "name": "sec0",
-  "version": "0.0.1",
-  "description": "Reserved placeholder package for the Sec0 npm namespace.",
+  "name": "sec0-sdk",
+  "version": "0.1.0",
+  "description": "Minimal public starter package for the Sec0 SDK.",
   "license": "Apache-2.0",
   "author": "WormAI, Inc.",
   "main": "index.js",
@@ -20,8 +20,8 @@
   ],
   "keywords": [
     "sec0",
-    "placeholder",
-    "reserved"
+    "sdk",
+    "security"
   ],
   "publishConfig": {
     "access": "public",
