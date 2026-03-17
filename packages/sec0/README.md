@@ -1,16 +1,12 @@
-<p align="center">
-  <img src="public/sec0_logo.png" alt="Sec0 logo" width="70">
-</p>
-
 <h1 align="center">sec0</h1>
 
 <p align="center"><strong>Securing Rogue Agents</strong></p>
-<p align="center"><em>Open-source runtime safety and data curation layer for safe, continuous agent improvement</em></p>
+<p align="center"><em>Open-source runtime governance and trajectory curation layer for safe RL-driven orchestrations</em></p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/sec0"><img src="https://img.shields.io/npm/v/sec0" alt="npm version"></a>
   <a href="https://www.npmjs.com/package/sec0"><img src="https://img.shields.io/npm/dm/sec0" alt="npm downloads"></a>
-  <a href="https://github.com/teluashish0/sec0-sdk/blob/main/LICENSE"><img src="https://img.shields.io/github/license/teluashish0/sec0-sdk" alt="license"></a>
+  <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="license">
   <a href="https://app.sec0.ai/"><img src="https://img.shields.io/badge/Dashboard-app.sec0.ai-22c55e" alt="dashboard"></a>
 </p>
 
@@ -30,7 +26,7 @@ Sec0 is an open-source SDK and runtime infrastructure for governing AI workflows
 
 **Prerequisites:** Node >= 20.
 
-Install in an app:
+Install in an app (after `sec0` is published):
 ```bash
 npm install sec0
 ```
@@ -114,6 +110,112 @@ Config notes for first-time use:
 - `otel`: required config object for middleware initialization.
 - `sec0.dir`: local folder for Sec0 files.
 - `sec0.retentionDays`: cleanup window (days) for local Sec0 files.
+
+### Policy Source Selection (OpenClaw / Moltbot)
+
+For OpenClaw integrations, pick exactly one policy source in config. Do not mix local policy fields with control-plane policy fields in the same hook setup.
+
+Use local policy:
+
+```typescript
+createMoltbotHooks({
+  policySourceConfig: {
+    source: "local",
+    path: "./policy.yaml",
+  },
+  auditDir: "/var/sec0/audit",
+  signingKeyPath: "/var/sec0/keys/ed25519.b64",
+  tenant: "my-app",
+  serverName: "merchantbot-agent",
+  mode: "enforce",
+});
+```
+
+Use control-plane policy:
+
+```typescript
+createMoltbotHooks({
+  policySourceConfig: {
+    source: "control-plane",
+    controlPlaneSource: {
+      level: "gateway",
+      scope: "agent",
+      nodeId: "merchantbot-agent",
+      fallbackToBase: false,
+    },
+    refreshMs: 30000,
+  },
+  auditDir: "/var/sec0/audit",
+  signingKeyPath: "/var/sec0/keys/ed25519.b64",
+  apiKey: process.env.SEC0_API_KEY,
+  controlPlaneUrl: process.env.SEC0_CONTROL_PLANE_URL,
+  serverName: "merchantbot-agent",
+  mode: "enforce",
+});
+```
+
+This makes switching explicit:
+- `source: "local"` means the runtime reads only local policy material you provide.
+- `source: "control-plane"` means the runtime reads only control-plane policy for the selected node or base scope.
+- The old `policyPath`, `policyYaml`, `policyObject`, `policyFromControlPlane`, `policyControlPlaneSource`, and `policyRefreshMs` fields are still supported for backward compatibility, but `policySourceConfig` is the preferred production config.
+
+### Contextual Evaluator
+
+Sec0 now supports a generic contextual evaluator alongside explicit rules.
+
+- Rules remain the deterministic protection layer.
+- The evaluator reasons over structured action context and emits evaluator-derived findings.
+- Evaluator findings flow through the same escalation, review, remediation, and audit lifecycle as rule findings.
+- Reviewer-confirmed evaluator findings can generate explicit rule proposals.
+- Stable repeated evaluator findings can compile into suggested explicit rules over time.
+
+SDK middleware example:
+
+```typescript
+sec0SecurityMiddleware({
+  // ...
+  contextualEvaluator: {
+    evaluatorSource: "local",
+    evaluatorMode: "sync",
+    buildContext: async ({ defaultInput }) => ({
+      ...defaultInput,
+      constraints: {
+        ...defaultInput.constraints,
+        requiredApprovals: ["manager"],
+      },
+    }),
+  },
+})(server);
+```
+
+OpenClaw example:
+
+```typescript
+createMoltbotHooks({
+  // ...
+  contextualEvaluator: {
+    evaluatorSource: "control-plane",
+    evaluatorMode: "sync",
+    buildContext: async ({ payload, defaultInput }) => ({
+      ...defaultInput,
+      runtimeContext: {
+        ...defaultInput.runtimeContext,
+        conversationState: payload.metadata?.continuity_state,
+      },
+    }),
+  },
+});
+```
+
+Evaluator source selection is explicit:
+
+- `evaluatorSource: "disabled"`
+- `evaluatorSource: "local"`
+- `evaluatorSource: "control-plane"`
+
+There is no silent fallback between local and control-plane evaluator sources.
+
+See [docs/contextual-evaluator.md](./docs/contextual-evaluator.md) for the full architecture and control-plane flow.
 
 This enables:
 - Policy enforcement on every tool call
@@ -538,7 +640,7 @@ const guard = createSec0Guard({
 });
 ```
 
-Use [`apps/sec0-approvals-bridge`](https://docs.sec0.ai/docs/approvals-integration) for the reference Discord/Telegram approvals worker, or replace the transport with your own adapter. If you are integrating OpenClaw/Moltbot, pair your host hooks with `createMoltbotEscalationManager(...)` from `sec0/integrations/openclaw` instead of re-implementing create/poll/wait logic in the app.
+Use [`packages/approvals-bridge`](../approvals-bridge/README.md) for the reference Discord/Telegram approvals worker, or replace the transport with your own adapter. If you are integrating OpenClaw/Moltbot, pair your host hooks with `createMoltbotEscalationManager(...)` from `sec0/integrations/openclaw` instead of re-implementing create/poll/wait logic in the app.
 
 ### Integration Notes
 
@@ -551,9 +653,9 @@ Use [`apps/sec0-approvals-bridge`](https://docs.sec0.ai/docs/approvals-integrati
 ## Development
 
 ```bash
-cd sec0-sdk
-npm run typecheck
-npm test
+cd packages/sec0
+pnpm run typecheck
+pnpm run test
 ```
 
 ---
@@ -565,7 +667,7 @@ npm test
 3. Create a branch from `main`
 4. Open a PR
 
-Found a bug? [Open an issue](https://github.com/teluashish0/sec0-sdk/issues).
+Found a bug? [Open an issue](../../issues).
 
 ---
 

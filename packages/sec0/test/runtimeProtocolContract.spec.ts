@@ -1,8 +1,32 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { RUNTIME_PROTOCOL_VERSION } from "../src/runtime-adapter";
 
+function resolveProtocolSpecPath(): string | null {
+  const candidates = [
+    path.resolve(__dirname, "..", "..", "sec0-runtime-protocol", "openapi", "runtime-enforcement.yaml"),
+    path.resolve(__dirname, "..", "..", "..", "..", "sec0-runtime-protocol", "openapi", "runtime-enforcement.yaml"),
+    path.resolve(__dirname, "..", "..", "packages", "sec0-runtime-protocol", "openapi", "runtime-enforcement.yaml"),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+}
+
+function readProtocolSpecVersion(): string {
+  const specPath = resolveProtocolSpecPath();
+  if (!specPath) {
+    throw new Error("Unable to locate runtime-enforcement.yaml in any supported workspace layout");
+  }
+  const source = fs.readFileSync(specPath, "utf8");
+  const match = source.match(/^\s*version:\s*([0-9-]+)\s*$/m);
+  if (!match?.[1]) {
+    throw new Error(`Unable to locate protocol version in ${specPath}`);
+  }
+  return match[1];
+}
+
 describe("runtime protocol contract", () => {
-  it("keeps the public SDK runtime protocol version self-contained and date-versioned", () => {
-    expect(RUNTIME_PROTOCOL_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  it("keeps the public SDK runtime version aligned with sec0-runtime-protocol", () => {
+    expect(RUNTIME_PROTOCOL_VERSION).toBe(readProtocolSpecVersion());
   });
 });
