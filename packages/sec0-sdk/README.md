@@ -653,7 +653,7 @@ Use [`packages/approvals-bridge`](../approvals-bridge/README.md) for the referen
 ## Development
 
 ```bash
-cd packages/sec0
+cd packages/sec0-sdk
 npm run typecheck
 npm run test
 ```

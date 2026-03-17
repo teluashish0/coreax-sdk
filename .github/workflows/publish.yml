@@ -31,6 +31,6 @@ jobs:
       - name: Verify
         run: npm run verify
 
-      - name: Publish sec0
-        working-directory: packages/sec0
+      - name: Publish sec0-sdk
+        working-directory: packages/sec0-sdk
         run: npm publish --provenance --access public
