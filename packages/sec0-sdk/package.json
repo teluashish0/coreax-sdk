@@ -2,7 +2,7 @@
   "name": "sec0-sdk",
   "private": false,
   "version": "0.2.0",
-  "description": "Open-source Sec0 TypeScript SDK with decorators, middleware, gateway helpers, guard, audit, and protocol utilities",
+  "description": "Open-source runtime safety enforcement and data curation SDK for safe, continuous agent improvement",
   "license": "Apache-2.0",
   "author": "WormAI, Inc.",
   "repository": {
