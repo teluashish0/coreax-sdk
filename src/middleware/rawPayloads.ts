@@ -47,6 +47,9 @@ export async function persistScanRawIfConfigured(opts: {
 }): Promise<string | null> {
   const tenant = (opts.tenant || "").trim();
   if (!tenant) return null;
+  if (!opts.uploadConfig?.baseUrl?.trim() || !opts.uploadConfig?.apiKey?.trim()) {
+    return null;
+  }
   return uploadScanEvidence({
     kind: opts.kind,
     scanId: opts.scanId,

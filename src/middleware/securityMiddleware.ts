@@ -372,12 +372,7 @@ export const sec0SecurityMiddleware = (opts: MiddlewareOptions) => (server: McpS
     cachedAgentGuard = { policyHash: currentPolicyHash, agentGuard };
     return agentGuard;
   };
-  const requireUploadConfig = (): UploadApiConfig => {
-    if (!uploadApiConfig) {
-      throw new Error("[sec0-middleware] runtime.uploadApi configuration is required for uploading scan artifacts");
-    }
-    return uploadApiConfig;
-  };
+  const requireUploadConfig = (): UploadApiConfig | undefined => uploadApiConfig;
   if (telemetryEnabled) {
     initTracing({ ...opts.otel, serviceName: opts.otel.serviceName ?? server.name, serviceVersion: server.version, sample: (policyObj as any)?.observability?.sample });
   }

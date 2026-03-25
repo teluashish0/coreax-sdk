@@ -32,7 +32,7 @@ type CreateScanPipelineOptions = {
   server: { name: string; version: string };
   tenant?: string;
   registrySnapshotHash: string;
-  requireUploadConfig: () => UploadApiConfig;
+  requireUploadConfig: () => UploadApiConfig | undefined;
   debugSastEnabled?: boolean;
   debugDastEnabled?: boolean;
   semgrepFallbackScan: SastHook;

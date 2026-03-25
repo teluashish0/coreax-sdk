@@ -134,7 +134,7 @@ export type CreateWrappedToolHandlerInput = {
   getRunContextConfigForCurrentPolicy: () => RunContextConfig | null;
   getPolicy: () => PolicyObject;
   onPolicyResolved: (resolved: Awaited<ReturnType<PolicyProvider["getPolicy"]>>) => void;
-  requireUploadConfig: () => UploadApiConfig;
+  requireUploadConfig: () => UploadApiConfig | undefined;
 };
 
 export function createWrappedToolHandler(input: CreateWrappedToolHandlerInput): ToolHandler {
