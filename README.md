@@ -572,12 +572,22 @@ Found a bug? [Open an issue](https://github.com/teluashish0/sec0-sdk/issues).
 
 ---
 
-## License
+## Citation
 
-Apache License 2.0 (see `LICENSE`).
+If you use this repository in your work, please cite it using the metadata in `CITATION.cff` or the BibTeX entry below.
+
+```bibtex
+@software{telukunta_sec0_2026,
+  author = {Telukunta, Ashish and {WormAI, Inc.}},
+  title = {sec0},
+  year = {2026},
+  url = {https://github.com/teluashish0/sec0-sdk},
+  version = {0.2.3}
+}
+```
 
 ---
 
-## Citation
+## License
 
-If you use this repository in your work and find it helpful, please cite the repository and link back to the project where appropriate.
+Apache License 2.0 (see `LICENSE`).
