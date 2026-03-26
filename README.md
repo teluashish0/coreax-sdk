@@ -29,7 +29,7 @@
 
 <p align="center">
 
-  <img width="732" height="376" alt="Image that displays context-aware self-correcting of security boundary of AI agents as they evolve" src="./public/sec0-visual.png" />
+  <img width="600" alt="Image that displays context-aware self-correcting of security boundary of AI agents as they evolve" src="./public/sec0-visual.png" />
 
   
 </p>
