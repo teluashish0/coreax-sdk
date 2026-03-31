@@ -1,5 +1,5 @@
 {
-  "name": "sec0",
+  "name": "sec0-sdk",
   "private": false,
   "version": "0.2.3",
   "description": "Open-source Sec0 TypeScript SDK with decorators, middleware, gateway helpers, guard, audit, and protocol utilities",
@@ -97,7 +97,7 @@
     "build": "rimraf dist && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.typecheck.json --noEmit",
     "pack:dry-run": "npm pack --dry-run",
-    "boundary:check": "node ./tools/check-package-boundaries.mjs . sec0 \"from\\\\s+[\\\"']@sec0/client-sdk(?:[\\\"'/])\" \"from\\\\s+[\\\"']@sec0/hosted(?:[\\\"'/])\" \"from\\\\s+[\\\"'][^\\\"']*sec0-backend[^\\\"']*[\\\"']\"",
+    "boundary:check": "node ./tools/check-package-boundaries.mjs . sec0-sdk \"from\\\\s+[\\\"']@sec0/client-sdk(?:[\\\"'/])\" \"from\\\\s+[\\\"']@sec0/hosted(?:[\\\"'/])\" \"from\\\\s+[\\\"'][^\\\"']*sec0-backend[^\\\"']*[\\\"']\"",
     "lint": "npm run boundary:check && npm run typecheck",
     "test": "vitest run --passWithNoTests",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build && npm run pack:check",

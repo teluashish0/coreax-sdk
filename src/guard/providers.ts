@@ -3,8 +3,14 @@ import path from "node:path";
 import YAML from "yaml";
 import { createHash } from "node:crypto";
 import { parsePolicyYaml } from "../policy";
+import {
+  createControlPlanePolicyManager,
+  isControlPlanePolicySource,
+  type ControlPlanePolicySource,
+} from "../middleware/controlPlanePolicy";
 import { GuardConfigError, GuardPolicyInvalidError, GuardPolicyUnavailableError } from "./errors";
 import type {
+  GuardControlPlaneRemotePolicyProviderConfig,
   GuardInput,
   GuardLocalPolicyProviderConfig,
   GuardMode,
@@ -77,6 +83,22 @@ function isSnapshot(value: unknown): value is GuardProviderSnapshot {
   return typeof record.hash === "string" && "policy" in record;
 }
 
+export function isControlPlaneRemotePolicyProviderConfig(
+  value: GuardRemotePolicyProviderConfig | undefined,
+): value is GuardControlPlaneRemotePolicyProviderConfig {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && !("getPolicy" in value));
+}
+
+function normalizeControlPlanePolicySource(source?: ControlPlanePolicySource): ControlPlanePolicySource {
+  return isControlPlanePolicySource(source)
+    ? source
+    : {
+        source: "control-plane",
+        level: "middleware",
+        scope: "base",
+      };
+}
+
 class LocalPolicyProvider implements GuardPolicyProvider {
   private cache: CachedPolicy | null = null;
   private readonly cacheTtlMs: number;
@@ -144,9 +166,34 @@ class LocalPolicyProvider implements GuardPolicyProvider {
 }
 
 class RemotePolicyProvider implements GuardPolicyProvider {
-  constructor(private readonly config: GuardRemotePolicyProviderConfig) {}
+  private readonly controlPlanePolicyManager: ReturnType<typeof createControlPlanePolicyManager> | null;
+
+  constructor(private readonly config: GuardRemotePolicyProviderConfig) {
+    this.controlPlanePolicyManager = isControlPlaneRemotePolicyProviderConfig(config)
+      ? createControlPlanePolicyManager({
+          source: normalizeControlPlanePolicySource(config.source),
+          ...(config.controlPlaneUrl ? { controlPlaneUrl: config.controlPlaneUrl } : {}),
+          ...(config.auth ? { auth: config.auth } : {}),
+          ...(typeof config.debug === "boolean" ? { debug: config.debug } : {}),
+          ...(config.client ? { client: config.client } : {}),
+        })
+      : null;
+  }
 
   async getPolicy(input: GuardInput): Promise<GuardProviderSnapshot> {
+    if (this.controlPlanePolicyManager) {
+      const resolved = await this.controlPlanePolicyManager.getPolicy({
+        nodeId: input.context?.nodeId,
+      });
+      return {
+        policy: resolved.policy,
+        hash: resolved.hash,
+        source: "remote",
+      };
+    }
+    if (!("getPolicy" in this.config)) {
+      throw new GuardPolicyUnavailableError("Remote guard policy provider is not configured");
+    }
     const result = await this.config.getPolicy(input);
     if (isSnapshot(result)) {
       return {

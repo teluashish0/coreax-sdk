@@ -1,5 +1,7 @@
 import type { PolicyObject } from "../policy";
 import type { AgentGuardFinding } from "../middleware/agentGuard";
+import type { ControlPlaneClient } from "../middleware/adapters/controlPlaneClient";
+import type { ControlPlanePolicySource } from "../middleware/controlPlanePolicy";
 import type {
   EscalationResolution,
   EscalationResolutionStatusMetadata,
@@ -68,9 +70,26 @@ export interface GuardLocalPolicyProviderConfig {
   cacheTtlMs?: number;
 }
 
-export interface GuardRemotePolicyProviderConfig {
+export interface GuardHostedAuthConfig {
+  apiKey?: string;
+  bearerToken?: string;
+}
+
+export interface GuardCustomRemotePolicyProviderConfig {
   getPolicy(input: GuardInput): Promise<GuardProviderSnapshot | GuardPolicyInput>;
 }
+
+export interface GuardControlPlaneRemotePolicyProviderConfig {
+  auth?: GuardHostedAuthConfig;
+  source?: ControlPlanePolicySource;
+  controlPlaneUrl?: string;
+  debug?: boolean;
+  client?: ControlPlaneClient;
+}
+
+export type GuardRemotePolicyProviderConfig =
+  | GuardCustomRemotePolicyProviderConfig
+  | GuardControlPlaneRemotePolicyProviderConfig;
 
 export interface GuardProviderConfig {
   precedence?: GuardProviderPrecedence;
@@ -87,6 +106,10 @@ export interface GuardEscalationLifecycleConfig {
   maxRetries?: number;
   retryBackoffMs?: number;
   ttlSeconds?: number;
+  controlPlaneTimeoutMs?: number;
+  auth?: GuardHostedAuthConfig;
+  controlPlaneUrl?: string;
+  client?: ControlPlaneClient;
   reporter?: EscalationReporter;
   resolver?: EscalationResolver;
 }

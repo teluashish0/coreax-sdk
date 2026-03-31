@@ -2,6 +2,7 @@ import { GuardBlockedError, GuardConfigError, GuardEscalationError, GuardEscalat
 import { evaluateGuardDecision } from "./policy";
 import {
   createGuardPolicyProvider,
+  isControlPlaneRemotePolicyProviderConfig,
   resolveGuardMode,
 } from "./providers";
 import { GuardEscalationLifecycle } from "./escalation";
@@ -58,6 +59,34 @@ function applyRedaction(input: GuardInput, decision: GuardDecision): GuardInput 
   };
 }
 
+function mergeHostedEscalationDefaults(config: Sec0GuardConfig): Sec0GuardConfig["escalation"] {
+  const escalation = config.escalation;
+  const remote = config.provider?.remote;
+  if (!isControlPlaneRemotePolicyProviderConfig(remote)) {
+    return escalation;
+  }
+
+  const apiKey = escalation?.auth?.apiKey ?? remote.auth?.apiKey;
+  const bearerToken = escalation?.auth?.bearerToken ?? remote.auth?.bearerToken;
+  return {
+    ...escalation,
+    ...((apiKey || bearerToken)
+      ? {
+          auth: {
+            ...(apiKey ? { apiKey } : {}),
+            ...(bearerToken ? { bearerToken } : {}),
+          },
+        }
+      : {}),
+    ...(escalation?.controlPlaneUrl || remote.controlPlaneUrl
+      ? { controlPlaneUrl: escalation?.controlPlaneUrl ?? remote.controlPlaneUrl }
+      : {}),
+    ...(escalation?.client || remote.client
+      ? { client: escalation?.client ?? remote.client }
+      : {}),
+  };
+}
+
 export function createSec0Guard(config: Sec0GuardConfig = {}): Sec0Guard {
   const mode = resolveGuardMode(config);
   const runtime = toRuntimeContext(config);
@@ -67,10 +96,11 @@ export function createSec0Guard(config: Sec0GuardConfig = {}): Sec0Guard {
     runtime,
   });
   const transport = config.transport ?? createNoopApprovalTransport();
+  const escalationConfig = mergeHostedEscalationDefaults(config);
 
   const lifecycle = new GuardEscalationLifecycle(
     {
-      ...config.escalation,
+      ...escalationConfig,
     },
     runtime,
     config.hooks || {},

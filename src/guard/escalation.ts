@@ -3,6 +3,7 @@ import type {
   EscalationReporter,
   EscalationResolver,
 } from "../core/contracts";
+import type { ControlPlaneClient } from "../middleware/adapters/controlPlaneClient";
 import {
   Sec0EscalationAbortError,
   Sec0EscalationError,
@@ -32,6 +33,13 @@ type ResolvedEscalationLifecycleConfig = {
   maxRetries: number;
   retryBackoffMs: number;
   ttlSeconds: number;
+  controlPlaneTimeoutMs?: number;
+  auth?: {
+    apiKey?: string;
+    bearerToken?: string;
+  };
+  controlPlaneUrl?: string;
+  client?: ControlPlaneClient;
   reporter?: EscalationReporter;
   resolver?: EscalationResolver;
 };
@@ -69,6 +77,7 @@ function normalizeLifecycleConfig(config?: GuardEscalationLifecycleConfig): Reso
   const maxRetries = Number(config?.maxRetries);
   const retryBackoffMs = Number(config?.retryBackoffMs);
   const ttlSeconds = Number(config?.ttlSeconds);
+  const controlPlaneTimeoutMs = Number(config?.controlPlaneTimeoutMs);
   return {
     enabled: config?.enabled !== false,
     tenant: typeof config?.tenant === "string" && config.tenant.trim() ? config.tenant.trim() : undefined,
@@ -78,6 +87,12 @@ function normalizeLifecycleConfig(config?: GuardEscalationLifecycleConfig): Reso
     maxRetries: Number.isFinite(maxRetries) && maxRetries >= 0 ? Math.floor(maxRetries) : 3,
     retryBackoffMs: Number.isFinite(retryBackoffMs) && retryBackoffMs > 0 ? Math.floor(retryBackoffMs) : 250,
     ttlSeconds: Number.isFinite(ttlSeconds) && ttlSeconds > 0 ? Math.floor(ttlSeconds) : 3600,
+    ...(Number.isFinite(controlPlaneTimeoutMs) && controlPlaneTimeoutMs > 0
+      ? { controlPlaneTimeoutMs: Math.floor(controlPlaneTimeoutMs) }
+      : {}),
+    ...(config?.auth ? { auth: config.auth } : {}),
+    ...(config?.controlPlaneUrl ? { controlPlaneUrl: config.controlPlaneUrl } : {}),
+    ...(config?.client ? { client: config.client } : {}),
     reporter: config?.reporter,
     resolver: config?.resolver,
   };
@@ -127,6 +142,11 @@ export class GuardEscalationLifecycle {
     this.config = normalizeLifecycleConfig(config);
     this.manager = createEscalationManager({
       tenant: this.config.tenant,
+      ...(this.config.controlPlaneTimeoutMs ? { controlPlaneTimeoutMs: this.config.controlPlaneTimeoutMs } : {}),
+      ...(this.config.auth?.apiKey ? { apiKey: this.config.auth.apiKey } : {}),
+      ...(this.config.auth?.bearerToken ? { bearerToken: this.config.auth.bearerToken } : {}),
+      ...(this.config.controlPlaneUrl ? { controlPlaneUrl: this.config.controlPlaneUrl } : {}),
+      ...(this.config.client ? { client: this.config.client } : {}),
       reporter: this.config.reporter,
       resolver: this.config.resolver,
       timeoutMs: this.config.timeoutMs,

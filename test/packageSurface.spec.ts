@@ -18,13 +18,13 @@ function siblingPackagePath(packageDir: string, packageName: string): string {
   return resolved;
 }
 
-describe("sec0 package surface", () => {
+describe("sec0-sdk package surface", () => {
   const packageDir = path.resolve(__dirname, "..");
   const packageJson = readJson(path.join(packageDir, "package.json"));
   const middlewareIndexPath = path.join(packageDir, "src", "middleware", "index.ts");
 
   it("keeps the canonical OSS sec0 export surface on the workspace package", () => {
-    expect(packageJson.name).toBe("sec0");
+    expect(packageJson.name).toBe("sec0-sdk");
 
     const expectedSubpaths = [
       ".",
