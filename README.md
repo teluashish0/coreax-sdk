@@ -4,8 +4,9 @@
 
 <h1 align="center">sec0</h1>
 
-<p align="center"><strong>Securing Rogue Agents</strong></p>
-<p align="center"><em>Open-source runtime safety enforcement and data curation layer for safe, continuous agent improvement</em></p>
+<h3 align="center"><strong>The safest way to monitor, enforce context-aware guardrails, and improve your AI agents as conditions change</strong></h3>
+<p align="center"><em>Sec0 is an open-source Runtime Assurance SDK for AI agents in production</em></p>
+<p align="center"><em>Built to interoperate with any stack.</em></p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/sec0"><img src="https://img.shields.io/npm/v/sec0" alt="npm version"></a>
@@ -24,9 +25,7 @@
 ---
 
 <p align="center">
-  <a href="https://youtu.be/HrPb13ZYa0M">
-    <img src="https://raw.githubusercontent.com/teluashish0/sec0-sdk/main/public/sec0-demo-thumbnail.png" alt="Sec0 Demo: Runtime Guardrails That Adapt to Context" width="600">
-  </a>
+  <img width="600" alt="Image that displays context-aware self-correcting of security boundary of AI agents as they evolve" src="./public/sec0-visual.png" />
 </p>
 
 ---
