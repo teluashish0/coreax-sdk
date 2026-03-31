@@ -26,6 +26,13 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+      - name: Repair Rollup optional native dependency
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        run: |
+          if ! node -e "require.resolve('@rollup/rollup-linux-x64-gnu')"; then
+            ROLLUP_VERSION="$(node -p "require('./node_modules/rollup/package.json').optionalDependencies['@rollup/rollup-linux-x64-gnu']")"
+            npm install --no-save "@rollup/rollup-linux-x64-gnu@${ROLLUP_VERSION}"
+          fi
 
       - name: Verify
         run: npm run verify
