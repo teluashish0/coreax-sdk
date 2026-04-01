@@ -62,6 +62,40 @@ export interface GovernanceAuthority {
   metadata?: GovernanceJsonObject;
 }
 
+export interface GovernanceEvidenceEntityRef {
+  id?: string;
+  type?: string;
+  role?: string;
+  label?: string;
+  metadata?: GovernanceJsonObject;
+}
+
+export type GovernanceEvidenceEventStatus =
+  | "supported"
+  | "observed"
+  | "failed"
+  | "contradicted"
+  | "recovered"
+  | "superseded";
+
+export interface GovernanceEvidenceEvent {
+  eventId?: string;
+  timestamp?: string;
+  source?: string;
+  kind: string;
+  claim?: string;
+  claimGroup?: string;
+  summary: string;
+  status: GovernanceEvidenceEventStatus;
+  confidence?: number | null;
+  provenanceRef?: string;
+  entityRefs?: GovernanceEvidenceEntityRef[];
+  relatedEventIds?: string[];
+  contradictionLinks?: string[];
+  recoveryLinks?: string[];
+  metadata?: GovernanceJsonObject;
+}
+
 export interface GovernanceProvenance {
   parent_submission_ids?: string[];
   source_event_ids?: string[];
@@ -85,6 +119,7 @@ export interface GovernanceSubmission {
   payload: GovernanceJsonObject;
   state_ref?: string | null;
   state_slice?: GovernanceJsonObject | null;
+  evidence_events?: GovernanceEvidenceEvent[];
   provenance: GovernanceProvenance;
   metadata: GovernanceJsonObject;
   created_at: string;

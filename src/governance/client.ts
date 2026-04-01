@@ -111,6 +111,71 @@ function summarizeValue(value: unknown): string {
   }
 }
 
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((entry) => String(entry)) : [];
+}
+
+function normalizeEvidenceEvents(value: unknown): GovernanceSubmission["evidence_events"] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => {
+      const row = asObject(entry);
+      return {
+        eventId: typeof row.eventId === "string" ? row.eventId : undefined,
+        timestamp: typeof row.timestamp === "string" ? row.timestamp : undefined,
+        source: typeof row.source === "string" ? row.source : undefined,
+        kind: String(row.kind || ""),
+        claim: typeof row.claim === "string" ? row.claim : undefined,
+        claimGroup: typeof row.claimGroup === "string" ? row.claimGroup : undefined,
+        summary: String(row.summary || row.claim || ""),
+        status: String(row.status || "observed") as NonNullable<
+          GovernanceSubmission["evidence_events"]
+        >[number]["status"],
+        confidence:
+          typeof row.confidence === "number" && Number.isFinite(row.confidence)
+            ? Math.max(0, Math.min(1, row.confidence))
+            : null,
+        provenanceRef:
+          typeof row.provenanceRef === "string" ? row.provenanceRef : undefined,
+        entityRefs: Array.isArray(row.entityRefs)
+          ? row.entityRefs
+              .filter((entity) => entity && typeof entity === "object")
+              .map((entity) => {
+                const normalized = asObject(entity);
+                return {
+                  id: typeof normalized.id === "string" ? normalized.id : undefined,
+                  type: typeof normalized.type === "string" ? normalized.type : undefined,
+                  role: typeof normalized.role === "string" ? normalized.role : undefined,
+                  label: typeof normalized.label === "string" ? normalized.label : undefined,
+                  metadata: asObject(normalized.metadata),
+                };
+              })
+          : [],
+        relatedEventIds: asStringArray(row.relatedEventIds),
+        contradictionLinks: asStringArray(row.contradictionLinks),
+        recoveryLinks: asStringArray(row.recoveryLinks),
+        metadata: asObject(row.metadata),
+      };
+    })
+    .filter((entry) => entry.kind && entry.summary);
+}
+
+function collectInlineEvidenceEvents(
+  submission: Omit<GovernanceSubmission, "submission_id" | "created_at"> &
+    Partial<Pick<GovernanceSubmission, "submission_id" | "created_at">>,
+): GovernanceSubmission["evidence_events"] {
+  const stateSlice = asObject(submission.state_slice);
+  const metadata = asObject(submission.metadata);
+  const provenanceMetadata = asObject(submission.provenance?.metadata);
+  return normalizeEvidenceEvents([
+    ...(submission.evidence_events || []),
+    ...(Array.isArray(stateSlice.evidence_events) ? stateSlice.evidence_events : []),
+    ...(Array.isArray(metadata.evidence_events) ? metadata.evidence_events : []),
+    ...(Array.isArray(provenanceMetadata.evidence_events) ? provenanceMetadata.evidence_events : []),
+  ]);
+}
+
 export function normalizeGovernanceSubmission(
   submission: Omit<GovernanceSubmission, "submission_id" | "created_at"> &
     Partial<Pick<GovernanceSubmission, "submission_id" | "created_at">>,
@@ -143,6 +208,7 @@ export function normalizeGovernanceSubmission(
     },
     payload: asObject(submission.payload),
     state_slice: submission.state_slice ? asObject(submission.state_slice) : null,
+    evidence_events: collectInlineEvidenceEvents(submission),
     provenance: {
       ...submission.provenance,
       parent_submission_ids: Array.isArray(submission.provenance?.parent_submission_ids)

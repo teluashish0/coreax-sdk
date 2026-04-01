@@ -25,6 +25,72 @@ afterEach(() => {
 });
 
 describe("governance store", () => {
+  it("hoists inline evidence events from submission context into the canonical payload", () => {
+    const submission = normalizeGovernanceSubmission({
+      tenant_id: "tenant-a",
+      workflow_id: "retail",
+      node_id: "agent-1",
+      run_id: "run-1",
+      trace_id: "trace-1",
+      event_kind: "selected_action",
+      actor: { actor_id: "agent-1", actor_type: "agent" },
+      target: { action_type: "tool_call", action_name: "modify_pending_order_payment" },
+      authority: {},
+      payload: { payment_method_id: "pm_old" },
+      state_slice: {
+        evidence_events: [
+          {
+            kind: "claim_verification",
+            summary: "State slice verified the acting subject.",
+            claim: "The acting subject has been verified.",
+            status: "supported",
+            entityRefs: [],
+            relatedEventIds: [],
+            contradictionLinks: [],
+            recoveryLinks: [],
+          },
+        ],
+      },
+      provenance: {
+        metadata: {
+          evidence_events: [
+            {
+              kind: "runtime_error",
+              summary: "An earlier lookup failed.",
+              claim: "A prior lookup attempt failed.",
+              status: "superseded",
+              entityRefs: [],
+              relatedEventIds: [],
+              contradictionLinks: [],
+              recoveryLinks: [],
+            },
+          ],
+        },
+      },
+      metadata: {
+        evidence_events: [
+          {
+            kind: "user_confirmation",
+            summary: "The user explicitly confirmed the requested change.",
+            claim: "The user explicitly confirmed the requested change.",
+            status: "supported",
+            entityRefs: [],
+            relatedEventIds: [],
+            contradictionLinks: [],
+            recoveryLinks: [],
+          },
+        ],
+      },
+    });
+
+    expect(submission.evidence_events).toHaveLength(3);
+    expect(submission.evidence_events?.map((event) => event.kind).sort()).toEqual([
+      "claim_verification",
+      "runtime_error",
+      "user_confirmation",
+    ]);
+  });
+
   it("exports edited, approved, and rejected preference examples from normalized records", () => {
     const store = new FileGovernanceStore({ rootDir: makeTempDir() });
     const baseSubmission = normalizeGovernanceSubmission({
