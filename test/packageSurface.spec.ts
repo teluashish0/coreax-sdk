@@ -43,7 +43,7 @@ describe("@coreax/sdk package surface", () => {
     expect(packageJson.private).toBe(false);
     expect(packageJson.name).toBe("@coreax/sdk");
     expect(packageJson.scripts?.prepublishOnly).toBe("npm run publish:guard");
-    expect(String(packageJson.description || "")).toContain("Coreax SDK");
+    expect(String(packageJson.description || "")).toContain("CoreAX SDK");
   });
 
   it("keeps middleware/index.ts as a thin public barrel", () => {

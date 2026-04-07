@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/teluashish0/coreax/main/public/sec0_logo.png" alt="Coreax logo" width="70">
+  <img src="https://raw.githubusercontent.com/teluashish0/coreax/main/public/sec0_logo.png" alt="CoreAX logo" width="70">
 </p>
 
-<h1 align="center">Coreax SDK</h1>
+<h1 align="center">CoreAX SDK</h1>
 
 <h3 align="center"><strong>The safest way to monitor, enforce context-aware guardrails, and improve your AI agents as conditions change</strong></h3>
-<p align="center"><em>Coreax, formerly Sec0, is an open-source Runtime Assurance SDK for AI agents in production</em></p>
+<p align="center"><em>CoreAX, formerly Sec0, is an open-source Runtime Assurance SDK for AI agents in production</em></p>
 <p align="center"><em>Built to interoperate with any stack.</em></p>
 
 <p align="center">
@@ -57,8 +57,8 @@ npm deprecate sec0-sdk "Package renamed to @coreax/sdk. Install with: npm i @cor
 
 ---
 
-## What Is Coreax?
-Coreax, formerly Sec0, is an open-source SDK and runtime infrastructure for governing AI workflows with context-aware guardrails that evolve alongside your agents. It captures and curates high-quality trajectory data from orchestrator decisions, agent actions, tool calls, policy outcomes, and human-in-the-loop interventions to support safe, continuous agent improvement.
+## What Is CoreAX?
+CoreAX, formerly Sec0, is an open-source SDK and runtime infrastructure for governing AI workflows with context-aware guardrails that evolve alongside your agents. It captures and curates high-quality trajectory data from orchestrator decisions, agent actions, tool calls, policy outcomes, and human-in-the-loop interventions to support safe, continuous agent improvement.
 
 ## Installation
 

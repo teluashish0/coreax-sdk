@@ -2,7 +2,7 @@
   "name": "@coreax/sdk",
   "private": false,
   "version": "0.2.3",
-  "description": "Coreax SDK for runtime assurance and agent guardrails, with sec0 compatibility aliases for migration.",
+  "description": "CoreAX SDK for runtime assurance and agent guardrails, with sec0 compatibility aliases for migration.",
   "license": "Apache-2.0",
   "author": "WormAI, Inc.",
   "packageManager": "npm@10.8.2",

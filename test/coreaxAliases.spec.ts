@@ -66,7 +66,7 @@ import {
   seedSec0Run,
 } from "../src/instrumentation";
 
-describe("Coreax aliases in the canonical package", () => {
+describe("CoreAX aliases in the canonical package", () => {
   it("keeps guard and middleware aliases wired to the existing implementations", () => {
     expect(createCoreaxGuard).toBe(createSec0Guard);
     expect(coreaxSecurityMiddleware).toBe(sec0SecurityMiddleware);
