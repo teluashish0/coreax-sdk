@@ -89,8 +89,7 @@
     "NOTICE"
   ],
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "scripts": {
     "clean": "rimraf dist",

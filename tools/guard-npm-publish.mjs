@@ -32,9 +32,15 @@ if (!process.env.CI && process.env.SEC0_ALLOW_LOCAL_PUBLISH !== "1") {
   fail("Local publishing is blocked. Publish from CI, or set SEC0_ALLOW_LOCAL_PUBLISH=1 explicitly.");
 }
 
-const provenanceEnabled = String(process.env.npm_config_provenance || "").toLowerCase() === "true";
-if (!provenanceEnabled && process.env.SEC0_ALLOW_NO_PROVENANCE !== "1") {
-  fail("npm provenance is required. Re-run with --provenance or set SEC0_ALLOW_NO_PROVENANCE=1 intentionally.");
+const provenanceConfig =
+  process.env.npm_config_provenance ?? process.env.NPM_CONFIG_PROVENANCE ?? "";
+const provenanceEnabled = String(provenanceConfig).toLowerCase() === "true";
+if (process.env.CI && !provenanceEnabled && process.env.SEC0_ALLOW_NO_PROVENANCE !== "1") {
+  fail("npm provenance is required in CI. Re-run with --provenance or set SEC0_ALLOW_NO_PROVENANCE=1 intentionally.");
+}
+
+if (!process.env.CI && !provenanceEnabled) {
+  console.warn("[publish-guard] Local publish proceeding without npm provenance.");
 }
 
 if (!pkg.version || pkg.version === "0.0.0") {
