@@ -36,25 +36,6 @@
 npm uninstall sec0-sdk
 npm install @coreax/sdk
 ```
-
-Replace imports like:
-
-```ts
-import { createCoreaxGuard } from "sec0-sdk/guard";
-```
-
-with:
-
-```ts
-import { createCoreaxGuard } from "@coreax/sdk/guard";
-```
-
-Registry deprecation for the legacy package:
-
-```bash
-npm deprecate sec0-sdk "Package renamed to @coreax/sdk. Install with: npm i @coreax/sdk"
-```
-
 ---
 
 ## What Is CoreAX?
