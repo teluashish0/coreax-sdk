@@ -8,7 +8,8 @@ on:
       - "README.md"
       - "LICENSE"
       - "NOTICE"
-      - "public/**"
+      - "CITATION.cff"
+      - ".gitignore"
       - "src/**"
       - "test/**"
       - "tsconfig*.json"
@@ -18,14 +19,14 @@ on:
   push:
     branches:
       - main
-      - master
     paths:
       - "package.json"
       - "package-lock.json"
       - "README.md"
       - "LICENSE"
       - "NOTICE"
-      - "public/**"
+      - "CITATION.cff"
+      - ".gitignore"
       - "src/**"
       - "test/**"
       - "tsconfig*.json"
@@ -38,18 +39,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
       - name: Install
         run: npm ci
-      - name: Repair Rollup optional native dependency
-        if: runner.os == 'Linux' && runner.arch == 'X64'
-        run: |
-          if ! node -e "require.resolve('@rollup/rollup-linux-x64-gnu')"; then
-            ROLLUP_VERSION="$(node -p "require('./node_modules/rollup/package.json').optionalDependencies['@rollup/rollup-linux-x64-gnu']")"
-            npm install --no-save "@rollup/rollup-linux-x64-gnu@${ROLLUP_VERSION}"
-          fi
       - name: Verify Repo
         run: npm run verify

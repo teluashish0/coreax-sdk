@@ -8,6 +8,8 @@ export interface GovernanceJsonObject {
   [key: string]: GovernanceJsonValue;
 }
 
+export type GovernanceAwaitable<T> = T | Promise<T>;
+
 export type GovernanceMessageRole = "system" | "user" | "assistant";
 
 export interface GovernanceMessage {
@@ -18,7 +20,7 @@ export interface GovernanceMessage {
 export interface GovernanceFinding {
   code: string;
   message: string;
-  severity?: "low" | "medium" | "high" | "critical" | string;
+  severity?: "low" | "medium" | "high" | "critical";
   source?: string;
   metadata?: GovernanceJsonObject;
 }
@@ -96,6 +98,11 @@ export interface GovernanceEvidenceEvent {
   metadata?: GovernanceJsonObject;
 }
 
+export interface GovernanceEvidenceCompactionOptions {
+  maxEvents?: number;
+  maxSummaryLength?: number;
+}
+
 export interface GovernanceProvenance {
   parent_submission_ids?: string[];
   source_event_ids?: string[];
@@ -107,7 +114,7 @@ export interface GovernanceProvenance {
 
 export interface GovernanceSubmission {
   submission_id: string;
-  tenant_id: string;
+  namespace: string;
   workflow_id: string;
   node_id: string;
   run_id: string;
@@ -128,9 +135,8 @@ export interface GovernanceSubmission {
 export type GovernanceDecisionValue = "allow" | "deny" | "escalate" | "clarify";
 export type GovernanceDecisionBasis =
   | "deterministic_guard"
-  | "reused_resolution"
-  | "managed_rule"
-  | "semantic_reasoner"
+  | "local_rule"
+  | "custom_evaluator"
   | "default_allow";
 
 export interface GovernanceDecision {
@@ -151,6 +157,23 @@ export interface GovernanceDecision {
   observe_only?: boolean;
   metadata?: GovernanceJsonObject;
   created_at: string;
+}
+
+export interface GovernanceEvaluation {
+  decision: GovernanceDecisionValue;
+  basis?: GovernanceDecisionBasis;
+  findings?: GovernanceFinding[];
+  policy_reason?: string | null;
+  confidence?: number | null;
+  evidence_refs?: string[];
+  principles?: string[];
+  risk_labels?: string[];
+  observe_only?: boolean;
+  metadata?: GovernanceJsonObject;
+}
+
+export interface GovernanceEvaluator {
+  evaluate(submission: GovernanceSubmission): GovernanceAwaitable<GovernanceEvaluation>;
 }
 
 export interface ClarificationRequest {
@@ -179,14 +202,7 @@ export interface ClarificationAnswer {
   created_at: string;
 }
 
-export type HumanResolutionAction =
-  | "approve"
-  | "reject"
-  | "edit"
-  | "ask_clarifying_question"
-  | "answer_clarification"
-  | "accept_improvement"
-  | "reject_improvement";
+export type HumanResolutionAction = "approve" | "reject" | "edit";
 
 export interface HumanResolution {
   resolution_id: string;
@@ -195,7 +211,6 @@ export interface HumanResolution {
   reviewer: string;
   feedback?: string | null;
   edited_payload?: GovernanceJsonObject | null;
-  clarification_id?: string | null;
   metadata?: GovernanceJsonObject;
   created_at: string;
 }
@@ -297,202 +312,6 @@ export interface PromotionEvaluation {
   created_at: string;
 }
 
-export type GovernanceAutoresearchMutationSurface =
-  | "policy"
-  | "prompt_template"
-  | "retrieval_config"
-  | "context_compiler"
-  | "reasoner_instructions"
-  | "calibration"
-  | "clarification_policy"
-  | "review_routing"
-  | "orchestrator_overlay";
-
-export type GovernanceAutoresearchJobStatus = "queued" | "running" | "ready" | "failed";
-export type GovernanceAutoresearchCandidateStatus =
-  | "ready"
-  | "gated_out"
-  | "promoted"
-  | "rolled_back";
-export type GovernanceAutoresearchRolloutStatus =
-  | "canary"
-  | "promoted"
-  | "rolled_back"
-  | "failed";
-
-export interface GovernanceAutoresearchScope {
-  workflow_id: string;
-  node_id?: string | null;
-}
-
-export interface GovernanceAutoresearchDatasetSummary {
-  dataset_version: string;
-  replay_rows: number;
-  preference_examples: number;
-  reward_rows: number;
-  reflection_rows: number;
-  train_runs: number;
-  validation_runs: number;
-  held_out_runs: number;
-  held_out_suite_ids?: string[];
-  metadata?: GovernanceJsonObject;
-}
-
-export interface GovernanceAutoresearchCandidateMetrics {
-  total_cases: number;
-  bad_allows: number;
-  unnecessary_exploratory_escalations: number;
-  unnecessary_clarifications: number;
-  human_agreement_rate: number;
-  recovery_after_failures_rate: number;
-  reviewer_load: number;
-  structural_gate_rate: number;
-  exploratory_escalation_rate: number;
-}
-
-export interface GovernanceAutoresearchJob {
-  job_id: string;
-  tenant_id: string;
-  scope: GovernanceAutoresearchScope;
-  status: GovernanceAutoresearchJobStatus;
-  requested_by?: string | null;
-  allowed_surfaces: GovernanceAutoresearchMutationSurface[];
-  dataset_summary?: GovernanceAutoresearchDatasetSummary | null;
-  best_candidate_id?: string | null;
-  error_message?: string | null;
-  metadata?: GovernanceJsonObject;
-  started_at?: string | null;
-  completed_at?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface GovernanceAutoresearchCandidate {
-  candidate_id: string;
-  job_id: string;
-  tenant_id: string;
-  surface: GovernanceAutoresearchMutationSurface;
-  status: GovernanceAutoresearchCandidateStatus;
-  summary: string;
-  rationale?: string | null;
-  mutation_spec: GovernanceJsonObject;
-  baseline_metrics: GovernanceAutoresearchCandidateMetrics;
-  validation_metrics: GovernanceAutoresearchCandidateMetrics;
-  held_out_metrics: GovernanceAutoresearchCandidateMetrics;
-  delta_metrics: Record<string, number>;
-  replay_safe: boolean;
-  blocked_by_hard_floor: boolean;
-  score: number;
-  representative_submission_id?: string | null;
-  improvement_id?: string | null;
-  evaluation_id?: string | null;
-  metadata?: GovernanceJsonObject;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface GovernanceAutoresearchRollout {
-  rollout_id: string;
-  job_id: string;
-  candidate_id: string;
-  tenant_id: string;
-  scope: GovernanceAutoresearchScope;
-  status: GovernanceAutoresearchRolloutStatus;
-  improvement_id?: string | null;
-  evaluation_id?: string | null;
-  canary_percentage: number;
-  rollback_reason?: string | null;
-  baseline_metrics: GovernanceAutoresearchCandidateMetrics;
-  candidate_metrics: GovernanceAutoresearchCandidateMetrics;
-  mutation_spec: GovernanceJsonObject;
-  metadata?: GovernanceJsonObject;
-  promoted_at?: string | null;
-  rolled_back_at?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface GovernanceRuntimeConfigAppliedRollout {
-  rollout_id: string;
-  job_id?: string | null;
-  candidate_id?: string | null;
-  surface: GovernanceAutoresearchMutationSurface;
-  scope: GovernanceAutoresearchScope;
-  status: "canary" | "promoted";
-  canary_percentage: number;
-  applied_via: "canary" | "promoted";
-  mutation_spec_hash: string;
-  promoted_at?: string | null;
-  metadata?: GovernanceJsonObject;
-}
-
-export interface GovernanceRuntimeConfigVersions {
-  runtime_config_version: string;
-  surface_versions: Partial<
-    Record<GovernanceAutoresearchMutationSurface, string>
-  >;
-  context_compiler_version: string;
-  reasoner_version: string;
-  calibration_version: string;
-}
-
-export interface GovernanceRuntimeConfig {
-  tenant_id: string;
-  workflow_id: string;
-  node_id?: string | null;
-  actor_id?: string | null;
-  run_id?: string | null;
-  trace_id?: string | null;
-  reflection: {
-    enabled: boolean;
-    policy_ids: string[];
-  };
-  surfaces: Partial<
-    Record<GovernanceAutoresearchMutationSurface, GovernanceJsonObject>
-  >;
-  governance: GovernanceJsonObject;
-  orchestrator: GovernanceJsonObject;
-  applied_rollouts: GovernanceRuntimeConfigAppliedRollout[];
-  versions: GovernanceRuntimeConfigVersions;
-  resolved_at: string;
-}
-
-export interface GovernanceAutoresearchJobDetail {
-  job: GovernanceAutoresearchJob;
-  candidates: GovernanceAutoresearchCandidate[];
-  rollouts: GovernanceAutoresearchRollout[];
-}
-
-export interface CreateGovernanceAutoresearchJobInput {
-  tenant_id?: string;
-  scope: GovernanceAutoresearchScope;
-  allowed_surfaces: GovernanceAutoresearchMutationSurface[];
-  metadata?: GovernanceJsonObject;
-}
-
-export interface PromoteGovernanceAutoresearchJobInput {
-  tenant_id?: string;
-  candidate_id?: string | null;
-  canary_percentage?: number | null;
-  metadata?: GovernanceJsonObject;
-}
-
-export interface RollbackGovernanceAutoresearchJobInput {
-  tenant_id?: string;
-  rollout_id?: string | null;
-  reason?: string | null;
-  metadata?: GovernanceJsonObject;
-}
-
-export interface GetGovernanceRuntimeConfigInput {
-  tenant_id?: string;
-  workflow_id: string;
-  node_id?: string | null;
-  actor_id?: string | null;
-  run_id?: string | null;
-  trace_id?: string | null;
-}
-
 export interface GovernanceSubmissionResult {
   submission: GovernanceSubmission;
   decision: GovernanceDecision;
@@ -500,8 +319,6 @@ export interface GovernanceSubmissionResult {
   human_resolution?: HumanResolution | null;
   allow_execution: boolean;
   effective_payload: GovernanceJsonObject;
-  audit?: GovernanceJsonObject;
-  guard?: GovernanceJsonObject;
   improvements?: ImprovementProposal[];
   metadata?: GovernanceJsonObject;
 }
@@ -536,7 +353,7 @@ export interface PreferenceComparison {
 export interface PreferenceExample {
   submission_id: string;
   resolution_id: string;
-  preference_kind: Extract<HumanResolutionAction, "approve" | "reject" | "edit">;
+  preference_kind: HumanResolutionAction;
   comparison: PreferenceComparison;
   label: "A" | "B" | "Tie";
   chosen_completion: GovernanceJsonObject;
@@ -568,6 +385,7 @@ export interface ReplayEventRow {
 }
 
 export interface GovernanceWaitOptions {
+  signal?: AbortSignal;
   timeoutMs?: number;
   pollIntervalMs?: number;
 }
@@ -578,6 +396,5 @@ export interface ResolveGovernanceReviewInput {
   reviewer: string;
   feedback?: string | null;
   edited_payload?: GovernanceJsonObject | null;
-  clarification_id?: string | null;
   metadata?: GovernanceJsonObject;
 }

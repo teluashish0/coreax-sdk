@@ -1,14 +1,14 @@
 export type GuardErrorCode =
-  | "SEC0_GUARD_CONFIG_INVALID"
-  | "SEC0_GUARD_POLICY_UNAVAILABLE"
-  | "SEC0_GUARD_POLICY_INVALID"
-  | "SEC0_GUARD_PROVIDER_ERROR"
-  | "SEC0_GUARD_BLOCKED"
-  | "SEC0_GUARD_ESCALATION_FAILED"
-  | "SEC0_GUARD_ESCALATION_TIMEOUT"
-  | "SEC0_GUARD_ABORTED";
+  | "COREAX_GUARD_CONFIG_INVALID"
+  | "COREAX_GUARD_POLICY_UNAVAILABLE"
+  | "COREAX_GUARD_POLICY_INVALID"
+  | "COREAX_GUARD_PROVIDER_ERROR"
+  | "COREAX_GUARD_BLOCKED"
+  | "COREAX_GUARD_ESCALATION_FAILED"
+  | "COREAX_GUARD_ESCALATION_TIMEOUT"
+  | "COREAX_GUARD_ABORTED";
 
-export class Sec0GuardError extends Error {
+export class CoreaxGuardError extends Error {
   readonly code: GuardErrorCode;
   readonly details?: Record<string, unknown>;
 
@@ -19,52 +19,50 @@ export class Sec0GuardError extends Error {
   }
 }
 
-export const CoreaxGuardError = Sec0GuardError;
-
-export class GuardConfigError extends Sec0GuardError {
+export class GuardConfigError extends CoreaxGuardError {
   constructor(message: string, details?: Record<string, unknown>) {
-    super("SEC0_GUARD_CONFIG_INVALID", message, details);
+    super("COREAX_GUARD_CONFIG_INVALID", message, details);
   }
 }
 
-export class GuardPolicyUnavailableError extends Sec0GuardError {
+export class GuardPolicyUnavailableError extends CoreaxGuardError {
   constructor(message: string, details?: Record<string, unknown>) {
-    super("SEC0_GUARD_POLICY_UNAVAILABLE", message, details);
+    super("COREAX_GUARD_POLICY_UNAVAILABLE", message, details);
   }
 }
 
-export class GuardPolicyInvalidError extends Sec0GuardError {
+export class GuardPolicyInvalidError extends CoreaxGuardError {
   constructor(message: string, details?: Record<string, unknown>) {
-    super("SEC0_GUARD_POLICY_INVALID", message, details);
+    super("COREAX_GUARD_POLICY_INVALID", message, details);
   }
 }
 
-export class GuardProviderError extends Sec0GuardError {
+export class GuardProviderError extends CoreaxGuardError {
   constructor(message: string, details?: Record<string, unknown>) {
-    super("SEC0_GUARD_PROVIDER_ERROR", message, details);
+    super("COREAX_GUARD_PROVIDER_ERROR", message, details);
   }
 }
 
-export class GuardBlockedError extends Sec0GuardError {
+export class GuardBlockedError extends CoreaxGuardError {
   constructor(message: string, details?: Record<string, unknown>) {
-    super("SEC0_GUARD_BLOCKED", message, details);
+    super("COREAX_GUARD_BLOCKED", message, details);
   }
 }
 
-export class GuardEscalationError extends Sec0GuardError {
+export class GuardEscalationError extends CoreaxGuardError {
   constructor(message: string, details?: Record<string, unknown>) {
-    super("SEC0_GUARD_ESCALATION_FAILED", message, details);
+    super("COREAX_GUARD_ESCALATION_FAILED", message, details);
   }
 }
 
-export class GuardEscalationTimeoutError extends Sec0GuardError {
+export class GuardEscalationTimeoutError extends CoreaxGuardError {
   constructor(message: string, details?: Record<string, unknown>) {
-    super("SEC0_GUARD_ESCALATION_TIMEOUT", message, details);
+    super("COREAX_GUARD_ESCALATION_TIMEOUT", message, details);
   }
 }
 
-export class GuardAbortError extends Sec0GuardError {
+export class GuardAbortError extends CoreaxGuardError {
   constructor(message: string, details?: Record<string, unknown>) {
-    super("SEC0_GUARD_ABORTED", message, details);
+    super("COREAX_GUARD_ABORTED", message, details);
   }
 }

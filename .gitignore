@@ -11,6 +11,6 @@ logs/
 .env.*.local
 .env.local
 .DS_Store
-.worm/
+.coreax/
 publish/**/node_modules/
 publish/**/*.tgz

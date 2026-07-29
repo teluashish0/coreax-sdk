@@ -10,7 +10,7 @@ import { normalizeStringArray } from "./shared";
 
 export interface RuntimeMapperInput {
   executionLayer: RuntimeExecutionLayer;
-  tenant?: string;
+  namespace?: string;
   server: string;
   tool: string;
   nodeId?: string;
@@ -34,16 +34,19 @@ export function mapRuntimeDecisionRequest(input: RuntimeMapperInput): RuntimeDec
         : RUNTIME_PROTOCOL_VERSION,
     ...(typeof input.requestId === "string" && input.requestId.trim() ? { requestId: input.requestId.trim() } : {}),
     context: {
-      integrationSurface: "sec0",
+      integrationSurface: "coreax",
       executionLayer: input.executionLayer,
-      tenant: typeof input.tenant === "string" && input.tenant.trim() ? input.tenant.trim() : undefined,
+      namespace:
+        typeof input.namespace === "string" && input.namespace.trim()
+          ? input.namespace.trim()
+          : undefined,
       server: String(input.server),
       tool: String(input.tool),
       ...(typeof input.nodeId === "string" && input.nodeId.trim() ? { nodeId: input.nodeId.trim() } : {}),
       ...(typeof input.runId === "string" && input.runId.trim() ? { runId: input.runId.trim() } : {}),
     },
     enforcement: {
-      mode: input.mode === "enforce" ? "enforce" : "observe",
+      mode: input.mode === "observe" ? "observe" : "enforce",
       strategy: input.strategy === "deny_on_any" ? "deny_on_any" : "deny_on_match",
       denyOn: normalizeStringArray(input.denyOn),
       forceDeny: input.forceDeny === true,
@@ -56,7 +59,7 @@ export function mapRuntimeDecisionRequest(input: RuntimeMapperInput): RuntimeDec
   };
 }
 
-export interface LegacyRuntimeDecision {
+export interface RuntimeEnforcementDecision {
   shouldBlock: boolean;
   shouldDeny: boolean;
   decision: RuntimeDecisionOutput["decision"];
@@ -68,7 +71,9 @@ export interface LegacyRuntimeDecision {
   adapterMode: RuntimeDecisionOutput["adapterMode"];
 }
 
-export function mapRuntimeDecisionToEnforcement(output: RuntimeDecisionOutput): LegacyRuntimeDecision {
+export function mapRuntimeDecisionToEnforcement(
+  output: RuntimeDecisionOutput,
+): RuntimeEnforcementDecision {
   return {
     shouldBlock: output.decision !== "allow",
     shouldDeny: output.decision === "deny",

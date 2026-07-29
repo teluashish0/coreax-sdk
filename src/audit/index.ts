@@ -1,10 +1,19 @@
-export { Sec0Appender, Sec0Appender as CoreaxAppender } from "./appender";
+export { CoreaxAppender } from "./appender";
 export type {
-  Sec0Config,
-  Sec0Config as CoreaxAuditConfig,
+  CoreaxAuditConfig,
   AuditEnvelopeMinimal,
-  RawPayloadEvent,
-  Sec0AppenderOptions,
-  Sec0AppenderOptions as CoreaxAppenderOptions,
-  PresignConfig,
+  AuditSigner,
+  CoreaxAppenderOptions,
+  SignedAuditEnvelope,
+  AuditVerificationFailure,
+  AuditVerificationResult,
 } from "./types";
+export { resolveAuditConfig } from "./config";
+export {
+  parseAuditSignature,
+  verifyAuditEnvelope,
+  verifyAuditLog,
+  verifyAuditBundle,
+  type AuditKeyResolver,
+  type AuditBundleManifest,
+} from "./verification";

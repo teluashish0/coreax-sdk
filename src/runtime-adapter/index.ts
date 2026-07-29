@@ -1,21 +1,20 @@
 import type { RuntimeAdapter, RuntimeAdapterConfig } from "./types";
 import { LocalRuntimeAdapter } from "./localAdapter";
-import { RemoteRuntimeAdapter } from "./remoteAdapter";
 import { resolveRuntimeAdapterConfig } from "./resolver";
 
 export function createRuntimeAdapter(config?: RuntimeAdapterConfig): RuntimeAdapter {
   const resolved = resolveRuntimeAdapterConfig(config);
-  const local = new LocalRuntimeAdapter();
-  if (resolved.mode !== "remote") {
-    return local;
-  }
-  return new RemoteRuntimeAdapter(resolved, local);
+  return new LocalRuntimeAdapter(resolved.protocolVersion);
 }
 
 export { LocalRuntimeAdapter } from "./localAdapter";
-export { RemoteRuntimeAdapter } from "./remoteAdapter";
 export { resolveRuntimeAdapterConfig } from "./resolver";
-export { mapRuntimeDecisionRequest, mapRuntimeDecisionToEnforcement, type RuntimeMapperInput, type LegacyRuntimeDecision } from "./mappers";
+export {
+  mapRuntimeDecisionRequest,
+  mapRuntimeDecisionToEnforcement,
+  type RuntimeEnforcementDecision,
+  type RuntimeMapperInput,
+} from "./mappers";
 export type {
   RuntimeAdapter,
   RuntimeAdapterConfig,
@@ -23,8 +22,6 @@ export type {
   RuntimeDecisionAction,
   RuntimeDecisionInput,
   RuntimeDecisionOutput,
-  RuntimeFailureMode,
-  RuntimeRemoteAdapterConfig,
   RuntimeExecutionLayer,
   RuntimeEnforcementMode,
   RuntimeEvaluationStrategy,

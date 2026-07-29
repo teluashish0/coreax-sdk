@@ -1,11 +1,11 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it using the metadata from this file."
-title: "sec0"
+title: "CoreAX SDK"
 authors:
   - family-names: "Telukunta"
     given-names: "Ashish"
   - name: "WormAI, Inc."
-version: "0.2.3"
+version: "1.0.0"
 license: "Apache-2.0"
-repository-code: "https://github.com/teluashish0/coreax"
-url: "https://github.com/teluashish0/coreax"
+repository-code: "https://github.com/teluashish0/coreax-sdk"
+url: "https://github.com/teluashish0/coreax-sdk"

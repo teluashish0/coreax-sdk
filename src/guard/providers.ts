@@ -2,26 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { createHash } from "node:crypto";
-import { parsePolicyYaml } from "../policy";
-import {
-  createControlPlanePolicyManager,
-  isControlPlanePolicySource,
-  type ControlPlanePolicySource,
-} from "../middleware/controlPlanePolicy";
+import { parsePolicyYaml, validatePolicy } from "../policy";
 import { GuardConfigError, GuardPolicyInvalidError, GuardPolicyUnavailableError } from "./errors";
 import type {
-  GuardControlPlaneRemotePolicyProviderConfig,
+  GuardCustomPolicyProviderConfig,
   GuardInput,
   GuardLocalPolicyProviderConfig,
-  GuardMode,
   GuardPolicyInput,
   GuardPolicyProvider,
   GuardProviderConfig,
   GuardProviderPrecedence,
   GuardProviderSnapshot,
-  GuardRemotePolicyProviderConfig,
   GuardRuntimeContext,
-  Sec0GuardConfig,
 } from "./types";
 
 type CachedPolicy = {
@@ -32,6 +24,53 @@ type CachedPolicy = {
 
 function stableHash(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value ?? null)).digest("hex");
+}
+
+function validateGuardPolicyInput(policy: unknown): GuardPolicyInput {
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) {
+    throw new GuardPolicyInvalidError("Guard policy must be an object");
+  }
+  const record = policy as Record<string, unknown>;
+  if (record.version === 1) {
+    const result = validatePolicy(record);
+    if (!result.valid || !result.policy) {
+      throw new GuardPolicyInvalidError("Invalid CoreAX policy", {
+        errors: result.errors ?? [],
+      });
+    }
+    return result.policy;
+  }
+  if (
+    record.defaultOutcome !== undefined &&
+    record.defaultOutcome !== "allow" &&
+    record.defaultOutcome !== "block"
+  ) {
+    throw new GuardPolicyInvalidError(
+      "Guard defaultOutcome must be allow or block",
+    );
+  }
+  if (record.rules !== undefined && !Array.isArray(record.rules)) {
+    throw new GuardPolicyInvalidError("Guard rules must be an array");
+  }
+  for (const [index, value] of (
+    Array.isArray(record.rules) ? record.rules : []
+  ).entries()) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new GuardPolicyInvalidError(`Guard rule ${index} must be an object`);
+    }
+    const outcome = (value as Record<string, unknown>).outcome;
+    if (
+      outcome !== "allow" &&
+      outcome !== "redact" &&
+      outcome !== "block" &&
+      outcome !== "escalate"
+    ) {
+      throw new GuardPolicyInvalidError(
+        `Guard rule ${index} has an invalid outcome`,
+      );
+    }
+  }
+  return policy as GuardPolicyInput;
 }
 
 function asPositiveInt(value: unknown, fallback: number): number {
@@ -50,7 +89,7 @@ function parsePolicyFile(filePath: string): GuardPolicyInput {
   const ext = path.extname(absolutePath).toLowerCase();
   if (ext === ".json") {
     try {
-      return JSON.parse(raw) as GuardPolicyInput;
+      return validateGuardPolicyInput(JSON.parse(raw));
     } catch (error: any) {
       throw new GuardPolicyInvalidError("Failed to parse guard JSON policy", {
         policyPath: absolutePath,
@@ -60,14 +99,14 @@ function parsePolicyFile(filePath: string): GuardPolicyInput {
   }
 
   try {
-    return parsePolicyYaml(raw);
+    return validateGuardPolicyInput(parsePolicyYaml(raw));
   } catch {
     try {
       const parsed = YAML.parse(raw);
       if (!parsed || typeof parsed !== "object") {
         throw new Error("yaml_did_not_parse_object");
       }
-      return parsed as GuardPolicyInput;
+      return validateGuardPolicyInput(parsed);
     } catch (error: any) {
       throw new GuardPolicyInvalidError("Failed to parse guard YAML policy", {
         policyPath: absolutePath,
@@ -81,22 +120,6 @@ function isSnapshot(value: unknown): value is GuardProviderSnapshot {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   return typeof record.hash === "string" && "policy" in record;
-}
-
-export function isControlPlaneRemotePolicyProviderConfig(
-  value: GuardRemotePolicyProviderConfig | undefined,
-): value is GuardControlPlaneRemotePolicyProviderConfig {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value) && !("getPolicy" in value));
-}
-
-function normalizeControlPlanePolicySource(source?: ControlPlanePolicySource): ControlPlanePolicySource {
-  return isControlPlanePolicySource(source)
-    ? source
-    : {
-        source: "control-plane",
-        level: "middleware",
-        scope: "base",
-      };
 }
 
 class LocalPolicyProvider implements GuardPolicyProvider {
@@ -147,9 +170,10 @@ class LocalPolicyProvider implements GuardPolicyProvider {
     if (this.cache && Date.now() - this.cache.loadedAtMs < this.cacheTtlMs) {
       return this.cache.snapshot;
     }
+    const policy = validateGuardPolicyInput(this.policyObject);
     const snapshot: GuardProviderSnapshot = {
-      policy: this.policyObject,
-      hash: stableHash(this.policyObject),
+      policy,
+      hash: stableHash(policy),
       source: "local",
     };
     this.cache = {
@@ -165,65 +189,39 @@ class LocalPolicyProvider implements GuardPolicyProvider {
   }
 }
 
-class RemotePolicyProvider implements GuardPolicyProvider {
-  private readonly controlPlanePolicyManager: ReturnType<typeof createControlPlanePolicyManager> | null;
-
-  constructor(private readonly config: GuardRemotePolicyProviderConfig) {
-    this.controlPlanePolicyManager = isControlPlaneRemotePolicyProviderConfig(config)
-      ? createControlPlanePolicyManager({
-          source: normalizeControlPlanePolicySource(config.source),
-          ...(config.controlPlaneUrl ? { controlPlaneUrl: config.controlPlaneUrl } : {}),
-          ...(config.auth ? { auth: config.auth } : {}),
-          ...(typeof config.debug === "boolean" ? { debug: config.debug } : {}),
-          ...(config.client ? { client: config.client } : {}),
-        })
-      : null;
-  }
-
+class CustomPolicyProvider implements GuardPolicyProvider {
+  constructor(private readonly config: GuardCustomPolicyProviderConfig) {}
   async getPolicy(input: GuardInput): Promise<GuardProviderSnapshot> {
-    if (this.controlPlanePolicyManager) {
-      const resolved = await this.controlPlanePolicyManager.getPolicy({
-        nodeId: input.context?.nodeId,
-      });
-      return {
-        policy: resolved.policy,
-        hash: resolved.hash,
-        source: "remote",
-      };
-    }
-    if (!("getPolicy" in this.config)) {
-      throw new GuardPolicyUnavailableError("Remote guard policy provider is not configured");
-    }
     const result = await this.config.getPolicy(input);
     if (isSnapshot(result)) {
+      const policy = validateGuardPolicyInput(result.policy);
       return {
         ...result,
-        source: result.source === "local" ? "remote" : result.source,
+        policy,
+        hash: result.hash || stableHash(policy),
+        source: "custom",
       };
     }
+    const policy = validateGuardPolicyInput(result);
     return {
-      policy: result,
-      hash: stableHash(result),
-      source: "remote",
+      policy,
+      hash: stableHash(policy),
+      source: "custom",
     };
   }
 }
 
 class CompositePolicyProvider implements GuardPolicyProvider {
-  private lastRemoteSnapshot: GuardProviderSnapshot | null = null;
-
   constructor(private readonly config: {
     precedence: GuardProviderPrecedence;
     local?: GuardPolicyProvider;
-    remote?: GuardPolicyProvider;
+    custom?: GuardPolicyProvider;
     runtime: GuardRuntimeContext;
   }) {}
 
-  private async readRemote(input: GuardInput): Promise<GuardProviderSnapshot> {
-    if (!this.config.remote) throw new GuardPolicyUnavailableError("Remote guard provider is not configured");
-    const snapshot = await this.config.remote.getPolicy(input);
-    this.lastRemoteSnapshot = snapshot;
-    return snapshot;
+  private async readCustom(input: GuardInput): Promise<GuardProviderSnapshot> {
+    if (!this.config.custom) throw new GuardPolicyUnavailableError("Custom guard provider is not configured");
+    return this.config.custom.getPolicy(input);
   }
 
   private async readLocal(input: GuardInput): Promise<GuardProviderSnapshot> {
@@ -236,43 +234,36 @@ class CompositePolicyProvider implements GuardPolicyProvider {
       try {
         return await this.readLocal(input);
       } catch (localError: any) {
-        const remote = await this.readRemote(input);
+        const custom = await this.readCustom(input);
         return {
-          ...remote,
-          source: "remote",
+          ...custom,
+          source: "custom",
           fallbackReason: `local_unavailable:${localError?.message || "unknown"}`,
         };
       }
     }
 
     try {
-      return await this.readRemote(input);
-    } catch (remoteError: any) {
-      if (this.lastRemoteSnapshot) {
-        return {
-          ...this.lastRemoteSnapshot,
-          source: "remote-cache",
-          fallbackReason: `remote_failed_using_cache:${remoteError?.message || "unknown"}`,
-        };
-      }
+      return await this.readCustom(input);
+    } catch (customError: any) {
       try {
         const local = await this.readLocal(input);
         return {
           ...local,
           source: "local-fallback",
-          fallbackReason: `remote_failed_using_local:${remoteError?.message || "unknown"}`,
+          fallbackReason: `custom_failed_using_local:${customError?.message || "unknown"}`,
         };
       } catch (localError: any) {
         this.config.runtime.log({
           level: "error",
           message: "guard policy resolution failed",
           data: {
-            remoteError: remoteError?.message || String(remoteError),
+            customError: customError?.message || String(customError),
             localError: localError?.message || String(localError),
           },
         });
-        throw new GuardPolicyUnavailableError("Unable to resolve guard policy from remote or local provider", {
-          remoteError: remoteError?.message || String(remoteError),
+        throw new GuardPolicyUnavailableError("Unable to resolve guard policy from custom or local provider", {
+          customError: customError?.message || String(customError),
           localError: localError?.message || String(localError),
         });
       }
@@ -280,75 +271,43 @@ class CompositePolicyProvider implements GuardPolicyProvider {
   }
 }
 
-export function resolveGuardMode(config: Sec0GuardConfig): GuardMode {
-  if (config.mode === "standalone" || config.mode === "dashboard" || config.mode === "hybrid") {
-    return config.mode;
-  }
-  const hasRemote = !!config.provider?.remote;
-  const hasLocal = !!config.provider?.local;
-  if (hasRemote && hasLocal) return "hybrid";
-  if (hasRemote) return "dashboard";
-  return "standalone";
-}
-
-export function validateProviderConfig(mode: GuardMode, provider: GuardProviderConfig | undefined): {
+export function validateProviderConfig(provider: GuardProviderConfig | undefined): {
   precedence: GuardProviderPrecedence;
   local?: GuardLocalPolicyProviderConfig;
-  remote?: GuardRemotePolicyProviderConfig;
+  custom?: GuardCustomPolicyProviderConfig;
 } {
   const precedence: GuardProviderPrecedence =
-    provider?.precedence === "local-first" || provider?.precedence === "remote-first"
+    provider?.precedence === "local-first" || provider?.precedence === "custom-first"
       ? provider.precedence
-      : "remote-first";
-
-  if (mode === "standalone") {
-    if (!provider?.local?.policy && !provider?.local?.policyPath) {
-      throw new GuardConfigError(
-        "standalone mode requires provider.local.policy or provider.local.policyPath",
-      );
-    }
-    return { precedence, local: provider.local };
+      : "local-first";
+  const hasLocal = Boolean(provider?.local?.policy || provider?.local?.policyPath);
+  const hasCustom = Boolean(provider?.custom);
+  if (!hasLocal && !hasCustom) {
+    throw new GuardConfigError(
+      "guard requires provider.local.policy, provider.local.policyPath, or provider.custom",
+    );
   }
-
-  if (mode === "dashboard") {
-    if (!provider?.remote) {
-      throw new GuardConfigError("dashboard mode requires provider.remote");
-    }
-    return { precedence, remote: provider.remote };
-  }
-
-  if (!provider?.remote) {
-    throw new GuardConfigError("hybrid mode requires provider.remote");
-  }
-  if (!provider?.local?.policy && !provider?.local?.policyPath) {
-    throw new GuardConfigError("hybrid mode requires provider.local.policy or provider.local.policyPath for fallback");
-  }
-  return { precedence, local: provider.local, remote: provider.remote };
+  return {
+    precedence,
+    ...(hasLocal ? { local: provider!.local } : {}),
+    ...(hasCustom ? { custom: provider!.custom } : {}),
+  };
 }
 
 export function createGuardPolicyProvider(opts: {
-  mode: GuardMode;
   provider?: GuardProviderConfig;
   runtime: GuardRuntimeContext;
 }): GuardPolicyProvider {
-  const resolved = validateProviderConfig(opts.mode, opts.provider);
+  const resolved = validateProviderConfig(opts.provider);
   const local = resolved.local ? new LocalPolicyProvider(resolved.local) : undefined;
-  const remote = resolved.remote ? new RemotePolicyProvider(resolved.remote) : undefined;
-
-  if (opts.mode === "standalone") {
-    if (!local) throw new GuardConfigError("standalone mode local provider could not be initialized");
-    return local;
-  }
-
-  if (opts.mode === "dashboard") {
-    if (!remote) throw new GuardConfigError("dashboard mode remote provider could not be initialized");
-    return remote;
-  }
+  const custom = resolved.custom ? new CustomPolicyProvider(resolved.custom) : undefined;
+  if (local && !custom) return local;
+  if (custom && !local) return custom;
 
   return new CompositePolicyProvider({
     precedence: resolved.precedence,
     local,
-    remote,
+    custom,
     runtime: opts.runtime,
   });
 }

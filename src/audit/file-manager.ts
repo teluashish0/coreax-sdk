@@ -1,28 +1,70 @@
-import { createWriteStream, existsSync, mkdirSync, appendFileSync } from "node:fs";
-import { join } from "node:path";
-import { sanitizeSegment } from "./validation";
+import {
+  closeSync,
+  chmodSync,
+  constants,
+  existsSync,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  unlinkSync,
+  writeSync,
+} from "node:fs";
+import { join, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import {
+  acquireFileLock,
+  releaseFileLock,
+} from "../internal/fileLock";
 import { LOG_PREFIX } from "./constants";
 
-type WriteStream = ReturnType<typeof createWriteStream>;
+const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
 /**
- * Manages audit file paths, directory creation, and daily-rotating write streams.
+ * Manages append-only audit files. Each row is written with one synchronous append
+ * so a process crash cannot leave an in-memory buffer that was reported as flushed.
  */
 export class FileManager {
-  private readonly baseDir: string;
+  private readonly requestedDirectory: string;
+  private baseDir: string | null = null;
   private auditDate: string | null = null;
-  private auditStream: WriteStream | null = null;
-  private rawDate: string | null = null;
-  private rawStream: WriteStream | null = null;
 
   constructor(baseDir: string) {
     if (!baseDir.trim()) {
-      throw new Error(`${LOG_PREFIX} config.dir is required`);
+      throw new Error(`${LOG_PREFIX} config.directory is required`);
     }
-    this.baseDir = baseDir;
-    if (!existsSync(this.baseDir)) {
-      mkdirSync(this.baseDir, { recursive: true });
+    this.requestedDirectory = resolve(baseDir);
+  }
+
+  initialize(): void {
+    if (this.baseDir) return;
+    if (!existsSync(this.requestedDirectory)) {
+      mkdirSync(this.requestedDirectory, {
+        recursive: true,
+        mode: 0o700,
+      });
     }
+    const directoryStat = lstatSync(this.requestedDirectory);
+    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+      throw new Error(
+        `${LOG_PREFIX} config.directory must be a real directory, not a symlink`,
+      );
+    }
+    chmodSync(this.requestedDirectory, 0o700);
+    this.baseDir = realpathSync(this.requestedDirectory);
+  }
+
+  private requireBaseDir(): string {
+    if (!this.baseDir) {
+      throw new Error(
+        `${LOG_PREFIX} audit state must be initialized before use`,
+      );
+    }
+    return this.baseDir;
   }
 
   // Current audit stream date (if active).
@@ -30,111 +72,161 @@ export class FileManager {
     return this.auditDate;
   }
 
-  // Current raw stream date (if active).
-  get currentRawDate(): string | null {
-    return this.rawDate;
-  }
-
   auditFilePath(date: string): string {
-    return join(this.baseDir, `audit-${date}.ndjson`);
+    return join(this.requireBaseDir(), `audit-${date}.ndjson`);
   }
 
-  rawFilePath(date: string): string {
-    const rawDir = join(this.baseDir, "raw");
-    if (!existsSync(rawDir)) {
-      mkdirSync(rawDir, { recursive: true });
-    }
-    return join(rawDir, `raw-${date}.ndjson`);
+  auditHeadPath(date: string): string {
+    return join(this.requireBaseDir(), `audit-${date}.head.json`);
   }
 
-  agentFilePath(nodeId: string, date: string, ref: string): string {
-    const safeNodeId = sanitizeSegment(nodeId);
-    const agentDir = join(this.baseDir, "agents", safeNodeId, date);
-    if (!existsSync(agentDir)) {
-      mkdirSync(agentDir, { recursive: true });
+  readAuditTail(date: string): string | null {
+    const filePath = this.auditFilePath(date);
+    if (!existsSync(filePath)) return null;
+    const content = readSecureFile(filePath);
+    if (!content) return null;
+    if (!content.endsWith("\n")) {
+      throw new Error(`${LOG_PREFIX} cannot append to a truncated audit log`);
     }
-    return join(agentDir, `${sanitizeSegment(ref)}.ndjson`);
+    const lines = content.split("\n");
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      const line = lines[index]?.trim();
+      if (line) return line;
+    }
+    return null;
+  }
+
+  readAuditHead(date: string): string | null {
+    const filePath = this.auditHeadPath(date);
+    return existsSync(filePath) ? readSecureFile(filePath) : null;
+  }
+
+  /**
+   * Serialize a read/sign/append/head transaction across SDK instances and local
+   * processes. A lock left by a crashed process is recovered only after the
+   * recorded PID is no longer alive.
+   */
+  async withAuditLock<T>(
+    date: string,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const baseDir = this.requireBaseDir();
+    const lock = await acquireFileLock({
+      rootDir: baseDir,
+      name: `audit-${date}`,
+      error: (message) => new Error(`${LOG_PREFIX} ${message}`),
+    });
+    try {
+      return await task();
+    } finally {
+      await releaseFileLock(lock);
+    }
   }
 
   // Ensure the audit stream targets the given date.
   // Returns the previous date if rotation occurred, or null otherwise.
   rotateAuditStream(date: string): string | null {
-    if (this.auditDate === date && this.auditStream) return null;
+    if (this.auditDate === date) return null;
     const previousDate = this.auditDate;
-    this.closeStream(this.auditStream);
     this.auditDate = date;
-    this.auditStream = this.openStream(this.auditFilePath(date));
-    return previousDate;
-  }
-
-  // Ensure the raw stream targets the given date.
-  // Returns the previous date if rotation occurred, or null otherwise.
-  rotateRawStream(date: string): string | null {
-    if (this.rawDate === date && this.rawStream) return null;
-    const previousDate = this.rawDate;
-    this.closeStream(this.rawStream);
-    this.rawDate = date;
-    this.rawStream = this.openStream(this.rawFilePath(date));
     return previousDate;
   }
 
   writeAuditLine(line: string): void {
-    if (!this.auditStream) {
+    if (!this.auditDate) {
       throw new Error(`${LOG_PREFIX} audit stream is not initialized`);
     }
-    this.auditStream.write(line);
+    appendAndSync(this.auditFilePath(this.auditDate), line);
   }
 
-  writeRawLine(line: string): void {
-    if (!this.rawStream) {
-      throw new Error(`${LOG_PREFIX} raw payload stream is not initialized`);
+  writeAuditHead(date: string, line: string): void {
+    const filePath = this.auditHeadPath(date);
+    const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
+    try {
+      const descriptor = openSync(
+        temporaryPath,
+        constants.O_WRONLY |
+          constants.O_CREAT |
+          constants.O_EXCL |
+          NOFOLLOW,
+        0o600,
+      );
+      try {
+        writeAll(descriptor, line);
+        fsyncSync(descriptor);
+      } finally {
+        closeSync(descriptor);
+      }
+      renameSync(temporaryPath, filePath);
+      syncDirectory(this.requireBaseDir());
+    } finally {
+      if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
     }
-    this.rawStream.write(line);
-  }
-
-  writeAgentLine(nodeId: string, date: string, ref: string, line: string): string {
-    const filePath = this.agentFilePath(nodeId, date, ref);
-    appendFileSync(filePath, line, { encoding: "utf8" });
-    return filePath;
   }
 
   async drainAuditStream(): Promise<void> {
-    if (this.auditStream && !this.auditStream.writable) {
-      await new Promise<void>((resolve) => this.auditStream?.once("drain", () => resolve()));
-    }
-  }
-
-  async drainRawStream(): Promise<void> {
-    if (this.rawStream && !this.rawStream.writable) {
-      await new Promise<void>((resolve) => this.rawStream?.once("drain", () => resolve()));
-    }
+    this.requireBaseDir();
   }
 
   // Close all active streams and release resources.
   close(): void {
-    this.closeStream(this.auditStream);
-    this.auditStream = null;
     this.auditDate = null;
-    this.closeStream(this.rawStream);
-    this.rawStream = null;
-    this.rawDate = null;
   }
+}
 
-  private openStream(filePath: string): WriteStream {
-    const stream = createWriteStream(filePath, { flags: "a" });
-    stream.on("error", () => {
-      // Suppress stream errors (e.g. ENOENT after destroy) to prevent uncaught exceptions.
-    });
-    return stream;
-  }
-
-  private closeStream(stream: WriteStream | null): void {
-    if (stream) {
-      try {
-        stream.destroy();
-      } catch {
-        // Best-effort cleanup; never propagate.
-      }
+function appendAndSync(filePath: string, line: string): void {
+  const descriptor = openSync(
+    filePath,
+    constants.O_WRONLY |
+      constants.O_APPEND |
+      constants.O_CREAT |
+      NOFOLLOW,
+    0o600,
+  );
+  try {
+    if (!fstatSync(descriptor).isFile()) {
+      throw new Error(`${LOG_PREFIX} audit target must be a regular file`);
     }
+    writeAll(descriptor, line);
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+function readSecureFile(filePath: string): string {
+  const descriptor = openSync(
+    filePath,
+    constants.O_RDONLY | NOFOLLOW,
+  );
+  try {
+    if (!fstatSync(descriptor).isFile()) {
+      throw new Error(`${LOG_PREFIX} audit target must be a regular file`);
+    }
+    return readFileSync(descriptor, "utf8");
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+function writeAll(descriptor: number, value: string): void {
+  const bytes = Buffer.from(value);
+  let offset = 0;
+  while (offset < bytes.length) {
+    offset += writeSync(
+      descriptor,
+      bytes,
+      offset,
+      bytes.length - offset,
+    );
+  }
+}
+
+function syncDirectory(directory: string): void {
+  const descriptor = openSync(directory, "r");
+  try {
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
   }
 }

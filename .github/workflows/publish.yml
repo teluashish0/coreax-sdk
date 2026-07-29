@@ -4,13 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Enable publish commands (requires manual opt-in)
+        description: Publish the already-pushed v1.0.0 tag
         required: false
         default: false
         type: boolean
+      version:
+        description: Type 1.0.0 to confirm the package version
+        required: true
+        type: string
 
 jobs:
   publish:
+    if: ${{ github.ref == 'refs/tags/v1.0.0' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -26,20 +31,14 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-      - name: Repair Rollup optional native dependency
-        if: runner.os == 'Linux' && runner.arch == 'X64'
-        run: |
-          if ! node -e "require.resolve('@rollup/rollup-linux-x64-gnu')"; then
-            ROLLUP_VERSION="$(node -p "require('./node_modules/rollup/package.json').optionalDependencies['@rollup/rollup-linux-x64-gnu']")"
-            npm install --no-save "@rollup/rollup-linux-x64-gnu@${ROLLUP_VERSION}"
-          fi
 
       - name: Verify
         run: npm run verify
 
       - name: Publish @coreax/sdk
-        if: ${{ github.event.inputs.publish == 'true' }}
+        if: ${{ github.event.inputs.publish == 'true' && github.event.inputs.version == '1.0.0' }}
         env:
-          SEC0_ALLOW_PUBLISH: "1"
-          SEC0_PUBLISH_PACKAGE: "@coreax/sdk"
+          COREAX_PUBLISH_APPROVED: "1"
+          COREAX_PUBLISH_PACKAGE: "@coreax/sdk"
+          COREAX_PUBLISH_VERSION: "1.0.0"
         run: npm publish --provenance --access public

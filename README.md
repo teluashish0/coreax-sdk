@@ -1,584 +1,195 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/teluashish0/coreax/main/public/sec0_logo.png" alt="CoreAX logo" width="70">
-</p>
+# CoreAX SDK
 
-<h1 align="center">CoreAX</h1>
+CoreAX is a standalone TypeScript security boundary for untrusted AI and agent
+actions. It evaluates proposed actions before caller-owned code executes them,
+records verifiable local evidence, and keeps every integration explicit.
 
-<h3 align="center"><strong>The safest way to monitor, enforce context-aware guardrails, and improve your AI agents as conditions change</strong></h3>
-<p align="center"><em>CoreAX is an open-source Runtime Assurance SDK for AI agents in production</em></p>
-<p align="center"><em>Built to interoperate with any stack.</em></p>
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/@coreax/sdk"><img src="https://img.shields.io/npm/v/%40coreax%2Fsdk" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/@coreax/sdk"><img src="https://img.shields.io/npm/dm/%40coreax%2Fsdk" alt="npm downloads"></a>
-  <a href="https://github.com/teluashish0/coreax/blob/main/LICENSE"><img src="https://img.shields.io/github/license/teluashish0/coreax" alt="license"></a>
-  <a href="https://app.sec0.ai/"><img src="https://img.shields.io/badge/Dashboard-app.sec0.ai-22c55e" alt="dashboard"></a>
-</p>
-
-<p align="center">
-  <a href="https://sec0.ai">Website</a> •
-  <a href="https://app.sec0.ai">Dashboard</a> •
-  <a href="https://docs.sec0.ai">SDK Documentation</a> •
-  <a href="#contributing">Contributing</a>
-</p>
-
----
-
-<p align="center">
-  <img width="600" alt="Image that displays context-aware self-correcting of security boundary of AI agents as they evolve" src="./public/coreax-image.png" />
-</p>
-
----
-
-> Migration note: `@coreax/sdk` is the canonical package name. The legacy `sec0-sdk` package and `sec0*` exports remain available as compatibility paths while you migrate existing code.
-
-```bash
-npm uninstall sec0-sdk
-npm install @coreax/sdk
-```
----
-
-## What Is CoreAX?
-CoreAX or Core Agent Experience, formerly Sec0, is an open-source SDK and runtime infrastructure for governing AI workflows with context-aware guardrails that evolve alongside your agents. It captures and curates high-quality trajectory data from orchestrator decisions, agent actions, tool calls, policy outcomes, and human-in-the-loop interventions to support safe, continuous agent improvement.
+CoreAX requires Node.js 20 or newer.
 
 ## Installation
 
-**Prerequisites:** Node >= 20.
-
-```bash
+```sh
 npm install @coreax/sdk
 ```
 
-Build from this repository:
-```bash
-npm install
-npm run build
-```
+## Local quick start
 
-## Before You Start
+Create an enforcing guard with an explicit policy. The callback passed to
+`execute` runs only when the decision permits it; a blocked action throws before
+the callback is reached.
 
-This Quickstart assumes:
-- `policy.yaml` defines runtime rules and retention (`default_retention`, optional `privacy.artifact_retention`).
-- A signer key (`signing.key_ref`) is available to produce tamper-evident audit envelopes.
-- Local Sec0 storage is configured (`sec0.dir`, optional `sec0.retentionDays`) for files such as `.sec0/audit-YYYY-MM-DD.ndjson`.
-
-Follow Quickstart in this order:
-1. Wrap your tool server.
-2. Instrument agent/orchestrator hops (optional, recommended for multi-agent systems).
-3. Add gateway calls only for cross-network tools (optional).
-
----
-
-## Quickstart
-
-### 1. Wrap a Tool Server with Middleware
-
-Generate a signing key:
-```bash
-mkdir -p .sec0/keys
-openssl rand -base64 32 > .sec0/keys/ed25519.key
-```
-
-Create `policy.yaml`:
-```yaml
-tenant: my-app
-default_retention: "30d"
-signing:
-  enabled: true
-  key_ref: "file://./.sec0/keys/ed25519.key"
-tools:
-  allowlist: ["*"]
-enforcement:
-  deny_on: []
-```
-
-Field notes:
-- `signing.key_ref`: where the signing key lives (local file in this example).
-- If your key is outside default safe dirs (`.sec0/keys`, `keys`, `config/keys`, `.sec0/secrets`, `secrets`), set `SEC0_SIGNER_KEY_DIRS`.
-- `default_retention`: default retention label applied when more specific rules are not set.
-- `tools.allowlist`: allowed tools (`"*"` is permissive for local development).
-- `enforcement.deny_on`: leave empty to observe only; add violation codes to block.
-
-Wrap your server:
-```typescript
-import { coreaxSecurityMiddleware } from "@coreax/sdk/middleware";
-import { LocalDevSigner } from "@coreax/sdk/signer";
-import { parsePolicyYaml } from "@coreax/sdk/policy";
-import fs from "node:fs";
-
-const server = createYourMcpServer();
-const policy = parsePolicyYaml(fs.readFileSync("./policy.yaml", "utf8"));
-
-coreaxSecurityMiddleware({
-  policy,
-  signer: LocalDevSigner.fromKeyRef(policy.signing.key_ref),
-  otel: {
-    endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://localhost:4318/v1/traces",
-    serviceName: "my-mcp-server",
-    environment: process.env.NODE_ENV ?? "dev",
-    tenant: "my-app",
-  },
-  sec0: { dir: ".sec0", retentionDays: 30 },
-  telemetry: { enabled: false },
-})(server);
-```
-
-Config notes for first-time use:
-- `signer`: loads the Ed25519 key and signs Sec0 audit envelopes.
-- `otel`: required config object for middleware initialization.
-- `sec0.dir`: local folder for Sec0 files.
-- `sec0.retentionDays`: cleanup window (days) for local Sec0 files.
-
-This enables:
-- Policy enforcement on every tool call
-- Signed audit logs in `.sec0/audit-YYYY-MM-DD.ndjson`
-- Registry freeze (handler swaps blocked)
-- Input/output integrity hashes
-
-### 2. Instrument Agent Hops with Decorators
-
-Create `sec0.config.yaml`:
-```yaml
-app:
-  tenant: demo
-  environment: dev
-  client:
-    name: demo-agent-system
-    version: "1.0.0"
-  hops:
-    OrderAgent.run:
-      type: agent
-      nodeId: order-agent
-      agentName: order-agent
-      agentVersion: "1.0.0"
-    Workflow.orchestrate:
-      type: orchestrator
-      nodeId: workflow-orch
-      orchestratorName: workflow-orch
-      orchestratorVersion: "1.0.0"
-
-controlPlane:
-  sec0Dir: ./.sec0
-  localSignerPath: ./.sec0/keys/ed25519.key
-  appenderDir: ./.sec0/logs
-```
-
-Initialize and decorate:
-```typescript
-import { initializeCoreaxApp, coreax, AgentManager } from "@coreax/sdk/instrumentation";
-
-initializeCoreaxApp("./sec0.config.yaml");
-
-class OrderAgent {
-  @coreax.agent()
-  async run(ctx: any, input: { orderId: string }, manager: AgentManager) {
-    manager.agent.setState({ order_id: input.orderId });
-    manager.agent.setMetadata({ received_at: Date.now() });
-
-    const headers = manager.getAgentStateHeaders();
-    await fetch("https://downstream.example.com/do-work", { method: "POST", headers });
-
-    return { ok: true };
-  }
-}
-
-class Workflow {
-  @coreax.orchestrator()
-  async orchestrate(ctx: any, input: any, manager: AgentManager) {
-    manager.agent.objective("Plan and execute the workflow safely.");
-    return { ok: true };
-  }
-}
-```
-
-### 3. Call Tools via Gateway
-
-For cross-network tool calls:
-```typescript
-import { callToolViaGateway } from "@coreax/sdk/middleware";
-
-const out = await callToolViaGateway({
-  gatewayBaseUrl: "https://YOUR_GATEWAY_DOMAIN",
-  server: "vision-mcp",
-  toolAtVersion: "fetch@1.0",
-  args: {
-    url: "https://api.example.com/resource/123",
-    method: "PUT",
-    body: { status: "approved" },
-  },
-  // Prefer a per-user OIDC token when available; use SVC_TOKEN for service jobs.
-  authHeader: `Bearer ${userAccessToken ?? process.env.SVC_TOKEN}`,
-  cause: { traceId: ctx.traceId, spanId: ctx.spanId },
-  agentState: manager.agent.snapshot(),
-});
-```
-
-### 4. Start a Gateway Server
-
-```typescript
-import { startGatewayServer } from "@coreax/sdk/gateway";
-import { InMemoryAdapter } from "@coreax/sdk/gateway";
-import { CoreaxAppender } from "@coreax/sdk/audit";
-import { LocalDevSigner } from "@coreax/sdk/signer";
-
-const signer = LocalDevSigner.fromKeyRef("file://./.sec0/keys/ed25519.key");
-const appender = new CoreaxAppender({ config: { dir: ".sec0" }, signer });
-
-startGatewayServer({
-  port: 8088,
-  tenant: "my-app",
-  targets: {
-    "vision-mcp": "https://vision.example.com",
-    "database-mcp": "https://db.example.com",
-  },
-  audit: {
-    append: (env) => appender.append(env),
-    gatewayName: "my-gateway",
-    gatewayVersion: "1.0.0",
-  },
-  quotas: { adapter: new InMemoryAdapter() },
-  enforcement: { mode: "enforce" },
-});
-```
-
-Need app-level checks for outbound messages, direct API calls, or tool invocations outside your MCP server?
-See [Guard API](#guard-api) near the end of this README.
-
----
-
-## Examples
-
-### Agent Guard (Prompt Injection & PII Detection)
-
-```typescript
-coreaxSecurityMiddleware({
-  policy,
-  signer: LocalDevSigner.fromKeyRef(policy.signing.key_ref),
-  sec0: { dir: ".sec0" },
-  agentGuard: {
-    enabled: true,
-    block_on_severity: "high",
-  },
-})(server);
-```
-
-Findings structure:
-```json
-{
-  "agent_guard_findings": [
-    { "code": "agent_prompt_injection", "severity": "high", "message": "..." },
-    { "code": "agent_pii", "severity": "medium", "field": "ssn" }
-  ]
-}
-```
-
-Built-in detectors: `prompt_injection`, `pii`, `secrets`, `toxic_content`, `command_unsafe`, `malicious_code`
-
-### Tool Allowlists
-
-```yaml
-tools:
-  allowlist:
-    - "mcp://vision-mcp/fetch@1.0"
-    - "mcp://database-mcp/query@*"
-  deny_if_unpinned_version: true
-
-enforcement:
-  deny_on:
-    - tool_not_in_allowlist
-```
-
-### Compliance Rules (Regex + Natural Language)
-
-```yaml
-compliance:
-  packs:
-    - id: healthcare
-      name: HIPAA Compliance
-      rules:
-        - id: ssn-pattern
-          type: regex
-          location: output
-          patterns: ["\\b\\d{3}-\\d{2}-\\d{4}\\b"]
-        - id: phi-disclosure
-          type: nl
-          location: output
-          instruction: "Detect if protected health information is being disclosed without authorization"
-          threshold: 70
-  policies:
-    - id: hipaa-policy
-      name: HIPAA Policy
-      enabled: true
-      pack_ids: [healthcare]
-```
-
----
-
-## Policy
-
-Policy governs agent behavior at runtime.
-
-**Enforcement layers:**
-- **Gateway**: network-boundary controls (authn/z, quotas, idempotency/dedupe, boundary guardrails)
-- **Middleware**: tool/server boundary controls (tool allow/deny, runtime integrity checks, scanning, signed audit envelopes)
-- **Agent scope**: nodeId-scoped policy for per-agent rules; evaluated using runtime context (objective, actions, inputs/outputs)
-
-**Enforcement modes:**
-- `deny_on: []` - observe mode (log violations without blocking)
-- `deny_on: ["tool_not_in_allowlist", "agent_guard_failed"]` - enforce mode
-- `escalate_on: ["tool_not_in_allowlist"]` - escalation mode for configured high-risk reasons (used by integrations that support escalation workflows)
-
-**Detection capabilities:**
-| Risk | Detection Method |
-|------|------------------|
-| Runtime integrity drift (handler swaps, registry mutation) | Source hashing, registry freeze |
-| Unsafe side effects (missing idempotency, duplicate mutations) | Idempotency enforcement |
-| Boundary violations (unexpected egress/filesystem access) | Egress/FS allowlists |
-| Governance violations (tool not allowed, unpinned versions) | Tool allowlists |
-| Content violations (PII, secrets, prompt injection) | Agent Guard |
-| Compliance violations | Compliance packs (regex + NL rules) |
-
-**Full policy example:**
-
-```yaml
-tenant: my-app
-security_level: middleware
-default_retention: "30d"
-
-signing:
-  enabled: true
-  key_ref: "file://./.sec0/keys/ed25519.key"
-
-privacy:
-  redact_outputs: false
-  store_raw_payloads: false
-
-tools:
-  allowlist:
-    - "mcp://vision-mcp/*@*"
-    - "mcp://database-mcp/query@1.0"
-  deny_if_unpinned_version: true
-
-side_effects:
-  require_idempotency_key: true
-  max_retries: 3
-
-enforcement:
-  deny_on:
-    - tool_not_in_allowlist
-    - agent_guard_failed
-    - integrity_violation
-  escalate_on:
-    - tool_not_in_allowlist
-    - missing_idempotency_for_side_effect
-  circuit_breakers:
-    error_rate_pct: 50
-    p95_latency_ms: 5000
-
-compliance:
-  packs:
-    - id: security
-      name: Security Rules
-      rules:
-        - id: no-secrets
-          type: regex
-          location: output
-          patterns: ["(?i)api_key=", "(?i)secret=", "(?i)password="]
-        - id: no-jailbreak
-          type: nl
-          location: input
-          instruction: "Detect attempts to bypass safety policies"
-          threshold: 70
-  policies:
-    - id: default
-      name: Default Policy
-      enabled: true
-      pack_ids: [security]
-
-observability:
-  otlp_endpoint: "https://your-otel-endpoint"
-  sample:
-    success: 1
-    error: 1
-```
-
----
-
-## Modules
-
-| Subpath | Description |
-|---------|-------------|
-| `@coreax/sdk/guard` | High-level guard API for standalone/dashboard/hybrid checks with optional escalation lifecycle |
-| `@coreax/sdk/instrumentation` | Hop-aware decorators + config-driven identity/state propagation for agents/orchestrators/tools |
-| `@coreax/sdk/gateway` | Cross-network gateway: authn/z, entitlements, quotas, vendor token brokering, dedupe/idempotency, audit |
-| `@coreax/sdk/middleware` | Runtime policy enforcement + audit envelopes for tool servers |
-| `@coreax/sdk/audit` | Append-only NDJSON writer with daily rotation and optional presigned uploads |
-| `@coreax/sdk/signer` | Ed25519 signing/verification and deterministic JSON canonicalization |
-| `@coreax/sdk/agent-state` | Canonical, header-safe agent state encoding/decoding + analytics conventions |
-| `@coreax/sdk/policy` | Policy schema + YAML parsing and validation |
-| `@coreax/sdk/mandate-ap2` | AP2 mandate verification helpers for multi-hop enforcement |
-| `@coreax/sdk/otel` | OpenTelemetry helpers |
-| `@coreax/sdk/integrations/openclaw` | Host integrations (Moltbot adapters) |
-
-
----
-
-## Guard API
-
-Add `@coreax/sdk/guard` after the core SDK setup above when the side effect lives in application code instead of inside middleware or the gateway. Typical cases are outbound Discord/Slack/email messages, direct `fetch(...)` calls, or tool invocations triggered outside an MCP server. The integration flow matches the rest of the SDK: create one guard at startup, point it at policy, then wrap the risky action where it happens.
-
-### 5. Create a Guard Once at App Startup
-
-Start with a local rule set for the fastest integration:
-
-```typescript
+```ts
 import { createCoreaxGuard } from "@coreax/sdk/guard";
 
 const guard = createCoreaxGuard({
-  mode: "standalone",
+  mode: "enforce",
   provider: {
     local: {
       policy: {
-        defaultOutcome: "allow",
-        rules: [
-          {
-            kind: "message_outbound",
-            target: "discord:supplier",
-            outcome: "block",
-            reason: "supplier_messages_require_review",
-          },
-        ],
+        version: 1,
+        tools: {
+          allow: ["records.read@1.0"],
+          requirePinnedVersions: true,
+        },
+        enforcement: {
+          denyOn: [
+            "tool_not_in_allowlist",
+            "version_unpinned",
+          ],
+        },
       },
     },
   },
 });
+
+const result = await guard.execute(
+  {
+    kind: "tool_call",
+    target: "records.read@1.0",
+    content: { id: "42" },
+    context: { runId: "run-001", nodeId: "support-agent" },
+  },
+  async (input) => {
+    const { id } = input.content as { id: string };
+    return readRecord(id);
+  },
+);
+
+console.log(result.decision.outcome, result.value);
 ```
 
-If you already have the `policy.yaml` from Step 1, you can reuse it with `local: { policyPath: "./policy.yaml" }` instead of defining inline rules.
+Policies may also be loaded from an explicit JSON or YAML `policyPath`. CoreAX
+does not discover configuration or read environment variables.
 
-### 6. Wrap the Side Effect with `guard.execute(...)`
+## Architecture
 
-```typescript
-await guard.execute(
-  {
-    kind: "message_outbound",
-    target: "discord:supplier",
-    content: outboundMessage,
-    context: {
-      nodeId: "merchant-agent",
-      threadId: conversationId,
+CoreAX sits between an untrusted proposal and the code that can cause a side
+effect:
+
+1. An agent proposes a tool call, API call, or outbound message.
+2. A guard, middleware function, or runtime adapter evaluates it against an
+   explicit policy.
+3. Deterministic rules allow, redact, block, or require approval.
+4. Caller-owned code performs an allowed action.
+5. Local audit, governance, and risk modules record and assess the result.
+6. Policy learning can produce constrained proposals in shadow mode for an
+   explicit promotion decision.
+
+The evaluator can combine evidence, graph context, retries, recovery,
+contradictions, and orchestration state. A caller-supplied semantic calibrator
+is advisory: it cannot override a deterministic hard deny or approval
+requirement.
+
+## Modules
+
+| Import | Purpose |
+| --- | --- |
+| `@coreax/sdk` | Primary CoreAX exports |
+| `@coreax/sdk/guard` | `createCoreaxGuard`, guard policies, and guarded execution |
+| `@coreax/sdk/middleware` | Local security middleware and request metadata |
+| `@coreax/sdk/evaluator` | Deterministic contextual evaluation |
+| `@coreax/sdk/policy` | Policy parsing, validation, and allowlist matching |
+| `@coreax/sdk/runtime-adapter` | Caller-configured runtime enforcement |
+| `@coreax/sdk/audit` | Signed append-only audit logs and verification |
+| `@coreax/sdk/signer` | Canonicalization, hashing, and keyed Ed25519 signing |
+| `@coreax/sdk/escalation` | Memory/file review state and scoped approval capabilities |
+| `@coreax/sdk/governance` | Local governance records, evidence compaction, and execution reporting |
+| `@coreax/sdk/runtime-risk` | Deterministic behavior, path, state, exposure, and mandate risk |
+| `@coreax/sdk/policy-learning` | Shadow learning, simulation, safety checks, promotion, and rollback |
+| `@coreax/sdk/instrumentation` | CoreAX configuration, context, decorators, and wrappers |
+| `@coreax/sdk/integrations/custom-agent` | Framework-neutral tool and message adapter |
+| `@coreax/sdk/core` | Interfaces for caller-supplied policy, audit, and approval components |
+
+## Configuration
+
+Configuration is supplied directly to each API. File-backed components accept
+explicit paths; `./.coreax` is the conventional local state root.
+
+```ts
+import { initCoreax } from "@coreax/sdk/instrumentation";
+
+const coreax = initCoreax({
+  stateRoot: "./.coreax",
+  application: {
+    name: "support-agent",
+    version: "1.0.0",
+    environment: "production",
+  },
+  nodes: {
+    support: {
+      kind: "agent",
+      name: "Support agent",
     },
   },
-  async (guardedInput) => sendToSupplier(String(guardedInput.content)),
-  {
-    onBlock: async (decision) => ({
-      sent: false,
-      reason: decision.reason,
-    }),
+  onEvent(event) {
+    localEventQueue.push(event);
   },
+});
+
+console.log(coreax.directories.auditDir);
+```
+
+Importing CoreAX does not create state. `initCoreax()` creates its configured
+instrumentation directories, while file-backed escalation and governance
+components and `CoreaxAppender` create their state only when their
+`initialize()` methods are called. Installing CoreAX middleware performs that
+middleware-owned audit initialization. Durable writes are serialized and use
+recovery-safe local records.
+
+Interfaces such as `PolicyProvider`, `RuntimeAdapter`, `AuditSink`,
+`ApprovalProvider`, and `SemanticCalibrator` are available for integrations
+owned and configured by the caller. CoreAX does not select an endpoint,
+credential, transport, or storage service for them.
+
+## Custom-agent integration
+
+The framework-neutral adapter maps tool calls and outbound messages to guard
+inputs while leaving execution, transport, and application state under caller
+control.
+
+```ts
+import { createCustomAgentAdapter } from "@coreax/sdk/integrations/custom-agent";
+
+const agent = createCustomAgentAdapter({ guard });
+
+const toolResult = await agent.executeTool(
+  {
+    name: "records.read@1.0",
+    arguments: { id: "42" },
+    context: { agentId: "support-agent", sessionId: "session-001" },
+  },
+  ({ id }) => readRecord(id),
+);
+
+await agent.sendOutboundMessage(
+  {
+    target: "customer",
+    message: "Your request is complete.",
+    context: { runId: "run-001" },
+  },
+  (message) => sendMessage(message),
 );
 ```
 
-`guard.execute(...)` keeps the call site simple: Sec0 evaluates policy, applies any redaction before your action runs, and then either returns your action result or blocks/escalates. Without `onBlock`, a block outcome throws `GuardBlockedError`. Use `guard.check(...)` when you only need the decision and want to handle execution yourself. For other side effects, swap `kind` to `api_call`, `tool_call`, or `mcp_call`.
+## Security guarantees
 
-### 7. Move Policy to the Dashboard Without Changing Call Sites
-
-```typescript
-const guard = createCoreaxGuard({
-  mode: "dashboard",
-  provider: {
-    remote: {
-      auth: { apiKey: process.env.SEC0_API_KEY },
-      source: { source: "control-plane", level: "middleware", scope: "base" },
-    },
-  },
-});
-```
-
-Use `dashboard` when policy should be managed centrally in hosted Sec0. Your application code still calls the same `guard.check(...)` or `guard.execute(...)`; only the provider changes.
-
-### 8. Use Hybrid Mode for Remote-First with Local Fallback
-
-```typescript
-const guard = createCoreaxGuard({
-  mode: "hybrid",
-  provider: {
-    precedence: "remote-first",
-    remote: {
-      auth: { apiKey: process.env.SEC0_API_KEY },
-      source: { source: "control-plane", level: "middleware", scope: "base" },
-    },
-    local: { policyPath: "./policy.yaml" },
-  },
-});
-```
-
-This is the easiest production setup when you want centrally managed policy but still want a safe local fallback during control-plane outages.
-
-### 9. Turn on Approvals Only for Actions That Need Human Review
-
-```typescript
-import { createCoreaxGuard } from "@coreax/sdk/guard";
-
-const guard = createCoreaxGuard({
-  mode: "dashboard",
-  provider: {
-    remote: {
-      auth: { apiKey: process.env.SEC0_API_KEY },
-      source: { source: "control-plane", level: "middleware", scope: "base" },
-    },
-  },
-  escalation: {
-    tenant: process.env.SEC0_TENANT_ID,
-    // If escalation.auth is omitted, createCoreaxGuard inherits the remote auth above.
-    waitForResolutionByDefault: true,
-    timeoutMs: 5 * 60_000,
-  },
-  hooks: {
-    onEscalationRequested: (event) => console.log("requested", event.created.id),
-    onEscalationResolved: (event) => console.log("resolved", event.resolution.status),
-    onEscalationError: (event) => console.error("escalation error", event.error.message),
-  },
-});
-```
-
-That is the natural hosted path: the app only needs Sec0 control-plane auth, and Sec0 handles the runtime approval flow. No Discord or bridge URL wiring is required in application code.
-
-### Integration Notes
-
-- Start with `standalone` while wiring Guard into the call sites that own the side effect.
-- Switch to `dashboard` or `hybrid` later without rewriting your `guard.execute(...)` calls.
-- Keep `@coreax/sdk/middleware` for MCP/tool-server enforcement and use `@coreax/sdk/guard` for app-level side effects that happen outside those boundaries.
-
----
-
-## Development
-
-```bash
-cd packages/sec0
-pnpm run typecheck
-pnpm run test
-```
-
----
-
-## Contributing
-
-1. Fork the repo and clone locally
-2. Run the checks in [Development](#development)
-3. Create a branch from `main`
-4. Open a PR
-
-Found a bug? [Open an issue](https://github.com/teluashish0/coreax/issues).
-
----
-
-## License
-
-Apache License 2.0 (see `LICENSE`).
-
----
-
-## Citation
-
-If you use this repository in your work and find it helpful, please cite the repository and link back to the project where appropriate.
+- No account, database, service credential, or implicit outbound request is
+  required.
+- Enforcement is deterministic and local unless the caller explicitly supplies
+  an integration.
+- Missing, expired, replayed, incorrectly scoped, or wrongly signed approval
+  capabilities fail closed.
+- Approval capabilities are keyed Ed25519 signatures with explicit action,
+  scope, expiry, and nonce claims.
+- Audit verification detects modified records, truncated logs, and unexpected
+  signers relative to the signed local head.
+- Detecting restoration of an entire older-but-valid state tree requires the
+  caller to retain the latest signed head or policy version outside that
+  writable state root.
+- Learned policy changes remain proposals by default. Proposals and promotion
+  cannot broaden permissions or remove mandatory denies, and promotion is an
+  explicit, signed operation.
+- Signed rollback may explicitly restore exact non-wildcard permissions from a
+  prior version. Wildcard expansion and mandatory-deny removal remain forbidden.
+- The application retains control of side effects and should place every
+  untrusted action behind a CoreAX enforcement boundary.

@@ -20,23 +20,35 @@ if (pkg.private === true) {
   );
 }
 
-if (process.env.SEC0_ALLOW_PUBLISH !== "1") {
-  fail("Publishing is blocked by default. Set SEC0_ALLOW_PUBLISH=1 for explicit release intent.");
+if (process.env.COREAX_PUBLISH_APPROVED !== "1") {
+  fail("Publishing is blocked without COREAX_PUBLISH_APPROVED=1.");
 }
 
-if (process.env.SEC0_PUBLISH_PACKAGE !== pkg.name) {
-  fail(`SEC0_PUBLISH_PACKAGE must be set to ${pkg.name}.`);
+if (process.env.COREAX_PUBLISH_PACKAGE !== pkg.name) {
+  fail(`COREAX_PUBLISH_PACKAGE must be set to ${pkg.name}.`);
 }
 
-if (!process.env.CI && process.env.SEC0_ALLOW_LOCAL_PUBLISH !== "1") {
-  fail("Local publishing is blocked. Publish from CI, or set SEC0_ALLOW_LOCAL_PUBLISH=1 explicitly.");
+if (process.env.COREAX_PUBLISH_VERSION !== pkg.version) {
+  fail(`COREAX_PUBLISH_VERSION must be set to ${pkg.version}.`);
+}
+
+if (!process.env.CI && process.env.COREAX_LOCAL_PUBLISH_APPROVED !== "1") {
+  fail("Local publishing is blocked without COREAX_LOCAL_PUBLISH_APPROVED=1.");
+}
+
+if (
+  process.env.CI &&
+  (process.env.GITHUB_REF_TYPE !== "tag" ||
+    process.env.GITHUB_REF_NAME !== `v${pkg.version}`)
+) {
+  fail(`CI publishing requires the exact v${pkg.version} tag.`);
 }
 
 const provenanceConfig =
   process.env.npm_config_provenance ?? process.env.NPM_CONFIG_PROVENANCE ?? "";
 const provenanceEnabled = String(provenanceConfig).toLowerCase() === "true";
-if (process.env.CI && !provenanceEnabled && process.env.SEC0_ALLOW_NO_PROVENANCE !== "1") {
-  fail("npm provenance is required in CI. Re-run with --provenance or set SEC0_ALLOW_NO_PROVENANCE=1 intentionally.");
+if (process.env.CI && !provenanceEnabled) {
+  fail("npm provenance is required in CI.");
 }
 
 if (!process.env.CI && !provenanceEnabled) {

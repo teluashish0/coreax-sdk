@@ -35,14 +35,31 @@ export function compactText(value: string, maxLength: number): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
+const CLASSIFICATION_RANKS = new Map<string, number>([
+  ["public", 0],
+  ["low", 0],
+  ["internal", 1],
+  ["private", 1],
+  ["personal", 1],
+  ["medium", 1],
+  ["confidential", 2],
+  ["sensitive", 2],
+  ["high", 2],
+  ["restricted", 3],
+  ["secret", 3],
+  ["critical", 3],
+]);
+
+export function isKnownClassification(value: unknown): boolean {
+  const normalized = normalizeString(value).toLowerCase();
+  return !normalized || CLASSIFICATION_RANKS.has(normalized);
+}
+
 export function classificationRank(value: unknown): number {
   const normalized = normalizeString(value).toLowerCase();
   if (!normalized) return 0;
-  if (["public", "low"].includes(normalized)) return 0;
-  if (["internal", "private", "personal", "medium"].includes(normalized)) return 1;
-  if (["confidential", "sensitive", "high"].includes(normalized)) return 2;
-  if (["restricted", "secret", "critical"].includes(normalized)) return 3;
-  return 1;
+  // An unknown label must not silently become a low-sensitivity category.
+  return CLASSIFICATION_RANKS.get(normalized) ?? 3;
 }
 
 export function maxClassificationRank(values: unknown[]): number {
@@ -56,10 +73,34 @@ export function severityFromScore(score: number): EvaluatorSeverity {
   return "low";
 }
 
+export type EvaluatorActionEffect = "read" | "write" | "unknown";
+
+const WRITE_OPERATION =
+  /\b(?:apply|approve|archive|cancel|charge|commit|create|delete|deploy|destroy|drop|execute|grant|insert|modify|mutate|patch|post|publish|purchase|put|remove|rename|revoke|send|submit|transfer|truncate|update|upload|upsert|write)\b/;
+const READ_OPERATION =
+  /\b(?:describe|fetch|get|inspect|list|lookup|query|read|search|view)\b/;
+
+export function classifyEvaluatorActionEffect(
+  input: Pick<EvaluatorInput, "action">,
+): EvaluatorActionEffect {
+  const operation = `${normalizeString(input.action.operation)} ${normalizeString(
+    input.action.kind,
+  )}`
+    .toLowerCase()
+    .replace(/[_./:-]+/g, " ");
+  if (input.action.sideEffect === true || WRITE_OPERATION.test(operation)) {
+    return "write";
+  }
+  if (READ_OPERATION.test(operation) || input.action.sideEffect === false) {
+    return "read";
+  }
+  return "unknown";
+}
+
 function requiredScopes(input: EvaluatorInput): string[] {
   const required = new Set<string>();
-  const operation = normalizeString(input.action.operation || input.action.kind).toLowerCase();
-  if (input.action.sideEffect || /create|update|delete|write|send|execute|approve/.test(operation)) {
+  const effect = classifyEvaluatorActionEffect(input);
+  if (effect === "write" || effect === "unknown") {
     required.add("write");
   } else {
     required.add("read");
@@ -80,7 +121,6 @@ function requiredScopes(input: EvaluatorInput): string[] {
 
 export function missingScopes(input: EvaluatorInput): string[] {
   const granted = new Set(normalizeStringArray(input.authority.grantedScopes));
-  if (granted.size === 0) return [];
   return requiredScopes(input).filter((scope) => !granted.has(scope));
 }
 

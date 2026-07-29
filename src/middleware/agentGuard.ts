@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 // Lightweight prompt/content guard that runs before and after agent handlers.
 export type Severity = "unknown" | "low" | "medium" | "high" | "critical";
 
@@ -71,7 +73,7 @@ const DEFAULT_SECRETS = [
 ];
 
 const DEFAULT_INJECTION = [
-  /(ignore|bypass) (all|previous) (instructions|rules)/i.source,
+  /(?:ignore|bypass)\s+(?:(?:all|previous)\s+){1,2}(?:instructions|rules)/i.source,
   /(exfiltrate|leak|share) (data|secrets|keys)/i.source,
   /(begin|show) (system|hidden) prompt/i.source,
   /(prompt|policy) (injection|override)/i.source
@@ -161,7 +163,7 @@ export class AgentGuard {
     if (this.opts.onScanPrompt) {
       try { const extra = await this.opts.onScanPrompt(textParts.map(p => p.value).join('\n')); findings.push(...(extra || [])); } catch {}
     }
-    return findings;
+    return this.sanitizeFindings(findings);
   }
 
   // Scans agent responses for sensitive leakage or policy breakage.
@@ -182,7 +184,7 @@ export class AgentGuard {
     if (this.opts.onScanOutput) {
       try { const extra = await this.opts.onScanOutput(textParts.map(p => p.value).join('\n')); findings.push(...(extra || [])); } catch {}
     }
-    return findings;
+    return this.sanitizeFindings(findings);
   }
 
   // Scans aggregated run context (multi-hop) using custom adapters/rules.
@@ -193,7 +195,7 @@ export class AgentGuard {
     if (!safe.trim()) return [];
     try {
       const extra = await this.opts.onScanRun(safe);
-      return Array.isArray(extra) ? extra : [];
+      return Array.isArray(extra) ? this.sanitizeFindings(extra) : [];
     } catch {
       return [];
     }
@@ -226,6 +228,63 @@ export class AgentGuard {
       for (const [k, v] of Object.entries(obj)) this.collectStrings(v, `${path}.${k}`, out, seen);
     }
   }
+
+  private sanitizeFindings(
+    findings: AgentGuardFinding[],
+  ): AgentGuardFinding[] {
+    return findings.map((finding) => {
+      const sanitized: AgentGuardFinding = {
+        ...finding,
+        message: this.redactSensitiveText(String(finding.message || "")),
+      };
+      if (typeof finding.evidence === "string" && finding.evidence) {
+        sanitized.evidence = finding.evidence.startsWith("sha256:")
+          ? finding.evidence
+          : `sha256:${createHash("sha256")
+              .update(finding.evidence, "utf8")
+              .digest("hex")}`;
+      }
+      if (typeof finding.summary === "string") {
+        sanitized.summary = this.redactSensitiveText(finding.summary);
+      }
+      if (typeof finding.reasoning === "string") {
+        sanitized.reasoning = this.redactSensitiveText(finding.reasoning);
+      }
+      if (typeof finding.fingerprint === "string") {
+        sanitized.fingerprint = this.redactSensitiveText(
+          finding.fingerprint,
+        );
+      }
+      if (finding.snapshot) {
+        let encoded: string;
+        try {
+          encoded = JSON.stringify(finding.snapshot);
+        } catch {
+          encoded = "[unserializable]";
+        }
+        sanitized.snapshot = {
+          sha256: createHash("sha256").update(encoded, "utf8").digest("hex"),
+        };
+      }
+      return sanitized;
+    });
+  }
+
+  private redactSensitiveText(value: string): string {
+    let redacted = value;
+    for (const pattern of [...this.secrets, ...this.pii]) {
+      try {
+        redacted = redacted.replace(
+          new RegExp(
+            pattern.source,
+            pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`,
+          ),
+          "[REDACTED]",
+        );
+      } catch {}
+    }
+    return redacted;
+  }
 }
 
 /**
@@ -239,13 +298,13 @@ export function maxSeverity(findings?: AgentGuardFinding[]): Severity | undefine
 }
 
 /**
- * Returns a short substring around the regex match for human review.
+ * Returns a stable fingerprint of the match without retaining secret or PII
+ * material in findings, logs, or caller-provided audit summaries.
  */
 function snippet(text: string, re: RegExp): string {
   try {
-    const m = text.match(re); if (!m) return '';
-    const i = m.index ?? 0; const start = Math.max(0, i - 20); const end = Math.min(text.length, i + (m[0]?.length || 0) + 20);
-    return text.slice(start, end);
+    const match = text.match(re)?.[0];
+    if (!match) return "";
+    return `sha256:${createHash("sha256").update(match, "utf8").digest("hex")}`;
   } catch { return ''; }
 }
-

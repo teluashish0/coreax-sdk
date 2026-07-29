@@ -1,37 +1,58 @@
-export { FileGovernanceStore } from "./store";
 export {
-  HttpGovernanceClient,
+  CoreaxGovernanceError,
+  GovernanceAbortError,
+  GovernanceConflictError,
+  GovernanceEvaluatorError,
+  GovernanceNotFoundError,
+  GovernanceStoreCorruptionError,
+  GovernanceStoreNotInitializedError,
+  GovernanceValidationError,
+} from "./errors";
+export {
+  collectInlineGovernanceEvidence,
+  compactGovernanceEvidence,
+  normalizeGovernanceEvidenceEvents,
+} from "./evidence";
+export {
   applyHumanResolutionPayload,
+  deterministicGovernanceEvaluator,
+  evaluateGovernanceSubmissionDeterministically,
   executeGovernedAction,
+  LocalGovernanceClient,
   normalizeGovernanceSubmission,
 } from "./client";
+export { FileGovernanceStore } from "./store";
+
+export type {
+  ExecuteGovernedActionOptions,
+  GovernanceClient,
+  GovernedActionResult,
+  GovernedActionSummary,
+  LocalGovernanceClientConfig,
+} from "./client";
+export type {
+  FileGovernanceStoreConfig,
+  FileGovernanceStorePaths,
+  GovernanceStore,
+} from "./store";
 export type {
   ClarificationAnswer,
   ClarificationRequest,
-  CreateGovernanceAutoresearchJobInput,
   ExecutionRecord,
   ExecutionReflectionRecord,
-  GetGovernanceRuntimeConfigInput,
   GovernanceActor,
-  GovernanceAutoresearchCandidate,
-  GovernanceAutoresearchCandidateMetrics,
-  GovernanceAutoresearchCandidateStatus,
-  GovernanceAutoresearchDatasetSummary,
-  GovernanceAutoresearchJob,
-  GovernanceAutoresearchJobDetail,
-  GovernanceAutoresearchJobStatus,
-  GovernanceAutoresearchMutationSurface,
-  GovernanceAutoresearchRollout,
-  GovernanceAutoresearchRolloutStatus,
-  GovernanceAutoresearchScope,
   GovernanceAuthority,
+  GovernanceAwaitable,
   GovernanceDecision,
+  GovernanceDecisionBasis,
   GovernanceDecisionValue,
+  GovernanceEvaluation,
+  GovernanceEvaluator,
   GovernanceEventKind,
-  GovernanceReflectionEventKind,
-  GovernanceRuntimeConfig,
-  GovernanceRuntimeConfigAppliedRollout,
-  GovernanceRuntimeConfigVersions,
+  GovernanceEvidenceCompactionOptions,
+  GovernanceEvidenceEntityRef,
+  GovernanceEvidenceEvent,
+  GovernanceEvidenceEventStatus,
   GovernanceFinding,
   GovernanceJsonObject,
   GovernanceJsonPrimitive,
@@ -40,6 +61,7 @@ export type {
   GovernanceMessageRole,
   GovernanceProvenance,
   GovernanceRecord,
+  GovernanceReflectionEventKind,
   GovernanceSubmission,
   GovernanceSubmissionResult,
   GovernanceTarget,
@@ -52,19 +74,9 @@ export type {
   PendingGovernanceReview,
   PreferenceComparison,
   PreferenceExample,
-  PromoteGovernanceAutoresearchJobInput,
   PromotionEvaluation,
   ReplayEventRow,
-  RollbackGovernanceAutoresearchJobInput,
   ResolveGovernanceReviewInput,
   RewardOutcomeRow,
   VerifierResult,
 } from "./types";
-export type { FileGovernanceStoreConfig, FileGovernanceStorePaths } from "./store";
-export type {
-  ExecuteGovernedActionOptions,
-  GovernanceClient,
-  GovernedActionResult,
-  GovernedActionSummary,
-  HttpGovernanceClientConfig,
-} from "./client";

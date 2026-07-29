@@ -1,13 +1,17 @@
-import { GuardBlockedError, GuardConfigError, GuardEscalationError, GuardEscalationTimeoutError } from "./errors";
-import { evaluateGuardDecision } from "./policy";
 import {
-  createGuardPolicyProvider,
-  isControlPlaneRemotePolicyProviderConfig,
-  resolveGuardMode,
-} from "./providers";
+  GuardBlockedError,
+  GuardConfigError,
+  GuardEscalationError,
+  GuardEscalationTimeoutError,
+} from "./errors";
+import { verifyApprovalCapability } from "../escalation";
 import { GuardEscalationLifecycle } from "./escalation";
+import { evaluateGuardDecision } from "./policy";
+import { createGuardPolicyProvider } from "./providers";
 import { createNoopApprovalTransport } from "./transport";
 import type {
+  CoreaxGuard,
+  CoreaxGuardConfig,
   GuardDecision,
   GuardExecuteHandlers,
   GuardExecutionResult,
@@ -16,223 +20,174 @@ import type {
   GuardLogEvent,
   GuardRuntimeContext,
   GuardWaitForResolutionOptions,
-  Sec0Guard,
-  Sec0GuardConfig,
 } from "./types";
 
-function toRuntimeContext(config: Sec0GuardConfig): GuardRuntimeContext {
-  const log = (event: GuardLogEvent) => {
-    if (!config.logger) return;
-    try {
-      config.logger(event);
-    } catch {}
-  };
+function runtimeContext(config: CoreaxGuardConfig): GuardRuntimeContext {
   return {
-    now: config.now || (() => Date.now()),
-    sleep: config.sleep || ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms))),
-    log,
-  };
-}
-
-function mergeHooks(globalHooks?: Partial<GuardHooks>, localHooks?: Partial<GuardHooks>): Partial<GuardHooks> {
-  return {
-    onEscalationRequested: async (event) => {
-      await Promise.resolve(globalHooks?.onEscalationRequested?.(event));
-      await Promise.resolve(localHooks?.onEscalationRequested?.(event));
-    },
-    onEscalationResolved: async (event) => {
-      await Promise.resolve(globalHooks?.onEscalationResolved?.(event));
-      await Promise.resolve(localHooks?.onEscalationResolved?.(event));
-    },
-    onEscalationError: async (event) => {
-      await Promise.resolve(globalHooks?.onEscalationError?.(event));
-      await Promise.resolve(localHooks?.onEscalationError?.(event));
+    now: config.now ?? (() => Date.now()),
+    sleep:
+      config.sleep ??
+      ((milliseconds) =>
+        new Promise<void>((resolve) => setTimeout(resolve, milliseconds))),
+    log(event: GuardLogEvent) {
+      try {
+        config.logger?.(event);
+      } catch {}
     },
   };
 }
 
-function applyRedaction(input: GuardInput, decision: GuardDecision): GuardInput {
-  if (!decision.redactedContent) return input;
+function combinedHooks(
+  globalHooks?: Partial<GuardHooks>,
+  localHooks?: Partial<GuardHooks>,
+): Partial<GuardHooks> {
   return {
-    ...input,
-    content: decision.redactedContent,
+    async onEscalationRequested(event) {
+      await globalHooks?.onEscalationRequested?.(event);
+      await localHooks?.onEscalationRequested?.(event);
+    },
+    async onEscalationResolved(event) {
+      await globalHooks?.onEscalationResolved?.(event);
+      await localHooks?.onEscalationResolved?.(event);
+    },
+    async onEscalationError(event) {
+      await globalHooks?.onEscalationError?.(event);
+      await localHooks?.onEscalationError?.(event);
+    },
   };
 }
 
-function mergeHostedEscalationDefaults(config: Sec0GuardConfig): Sec0GuardConfig["escalation"] {
-  const escalation = config.escalation;
-  const remote = config.provider?.remote;
-  if (!isControlPlaneRemotePolicyProviderConfig(remote)) {
-    return escalation;
+function validateInput(input: GuardInput): void {
+  const kinds = new Set(["message_outbound", "tool_call", "mcp_call", "api_call"]);
+  if (!input || typeof input !== "object" || !kinds.has(input.kind)) {
+    throw new GuardConfigError(
+      "guard input.kind must be message_outbound, tool_call, mcp_call, or api_call",
+    );
   }
-
-  const apiKey = escalation?.auth?.apiKey ?? remote.auth?.apiKey;
-  const bearerToken = escalation?.auth?.bearerToken ?? remote.auth?.bearerToken;
-  return {
-    ...escalation,
-    ...((apiKey || bearerToken)
-      ? {
-          auth: {
-            ...(apiKey ? { apiKey } : {}),
-            ...(bearerToken ? { bearerToken } : {}),
-          },
-        }
-      : {}),
-    ...(escalation?.controlPlaneUrl || remote.controlPlaneUrl
-      ? { controlPlaneUrl: escalation?.controlPlaneUrl ?? remote.controlPlaneUrl }
-      : {}),
-    ...(escalation?.client || remote.client
-      ? { client: escalation?.client ?? remote.client }
-      : {}),
-  };
 }
 
-/**
- * @deprecated Use createCoreaxGuard for new integrations.
- */
-export function createSec0Guard(config: Sec0GuardConfig = {}): Sec0Guard {
-  const mode = resolveGuardMode(config);
-  const runtime = toRuntimeContext(config);
-  const policyProvider = createGuardPolicyProvider({
-    mode,
+function cloneGuardInput(input: GuardInput): GuardInput {
+  try {
+    return structuredClone(input);
+  } catch {
+    throw new GuardConfigError(
+      "guard input must be structured-cloneable so policy checks and execution use the same snapshot",
+    );
+  }
+}
+
+function freezeSnapshot<T>(value: T, seen = new Set<object>()): T {
+  if (!value || typeof value !== "object" || seen.has(value)) return value;
+  if (ArrayBuffer.isView(value)) return value;
+  seen.add(value);
+  if (value instanceof Map) {
+    for (const [key, item] of value) {
+      freezeSnapshot(key, seen);
+      freezeSnapshot(item, seen);
+    }
+  } else if (value instanceof Set) {
+    for (const item of value) freezeSnapshot(item, seen);
+  } else {
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      freezeSnapshot(item, seen);
+    }
+  }
+  return Object.freeze(value);
+}
+
+function snapshotGuardInput(input: GuardInput): GuardInput {
+  const snapshot = cloneGuardInput(input);
+  validateInput(snapshot);
+  return freezeSnapshot(snapshot);
+}
+
+export function createCoreaxGuard(
+  config: CoreaxGuardConfig = {},
+): CoreaxGuard {
+  const mode = config.mode === "observe" ? "observe" : "enforce";
+  const runtime = runtimeContext(config);
+  const provider = createGuardPolicyProvider({
     provider: config.provider,
     runtime,
   });
   const transport = config.transport ?? createNoopApprovalTransport();
-  const escalationConfig = mergeHostedEscalationDefaults(config);
-
   const lifecycle = new GuardEscalationLifecycle(
-    {
-      ...escalationConfig,
-    },
+    config.escalation,
     runtime,
-    config.hooks || {},
+    config.hooks ?? {},
     transport,
   );
 
-  async function check(input: GuardInput): Promise<GuardDecision> {
-    if (!input || typeof input !== "object") {
-      throw new GuardConfigError("guard.check input is required");
-    }
-    if (
-      input.kind !== "message_outbound" &&
-      input.kind !== "tool_call" &&
-      input.kind !== "mcp_call" &&
-      input.kind !== "api_call"
-    ) {
-      throw new GuardConfigError("guard.check input.kind must be one of message_outbound|tool_call|mcp_call|api_call");
-    }
-    const snapshot = await policyProvider.getPolicy(input);
-    const decision = await evaluateGuardDecision({
-      snapshot,
+  async function checkSnapshot(input: GuardInput): Promise<GuardDecision> {
+    return evaluateGuardDecision({
+      snapshot: await provider.getPolicy(cloneGuardInput(input)),
       mode,
       input,
     });
-    return decision;
+  }
+
+  async function check(input: GuardInput): Promise<GuardDecision> {
+    return checkSnapshot(snapshotGuardInput(input));
   }
 
   async function execute<T>(
     input: GuardInput,
-    actionFn: (input: GuardInput, decision: GuardDecision) => Promise<T> | T,
+    action: (
+      guardedInput: GuardInput,
+      decision: GuardDecision,
+    ) => Promise<T> | T,
     handlers?: GuardExecuteHandlers<T>,
   ): Promise<GuardExecutionResult<T>> {
-    if (typeof actionFn !== "function") {
-      throw new GuardConfigError("guard.execute requires an actionFn function");
+    if (typeof action !== "function") {
+      throw new GuardConfigError("guard.execute requires an action function");
     }
-    const decision = await check(input);
-    const mergedHooks = mergeHooks(config.hooks, handlers);
+    const inputSnapshot = snapshotGuardInput(input);
+    const decision = await checkSnapshot(inputSnapshot);
 
-    if (decision.outcome === "allow") {
-      const value = await Promise.resolve(actionFn(input, decision));
-      return { decision, value };
+    if (mode === "observe" || decision.outcome === "allow") {
+      return {
+        decision,
+        value: await action(cloneGuardInput(inputSnapshot), decision),
+      };
     }
-
     if (decision.outcome === "redact") {
-      const redactedInput = handlers?.onRedactInput
-        ? await Promise.resolve(handlers.onRedactInput(input, decision))
-        : applyRedaction(input, decision);
-      const value = await Promise.resolve(actionFn(redactedInput, decision));
-      return { decision, value };
+      const proposedInput = handlers?.onRedactInput
+        ? await handlers.onRedactInput(
+            cloneGuardInput(inputSnapshot),
+            decision,
+          )
+        : {
+            ...cloneGuardInput(inputSnapshot),
+            content: decision.redactedContent ?? inputSnapshot.content,
+          };
+      const redactedInput = snapshotGuardInput(proposedInput);
+      return {
+        decision,
+        value: await action(cloneGuardInput(redactedInput), decision),
+      };
     }
-
     if (decision.outcome === "block") {
       if (handlers?.onBlock) {
-        const value = await Promise.resolve(handlers.onBlock(decision));
-        return { decision, value };
+        return { decision, value: await handlers.onBlock(decision) };
       }
-      throw new GuardBlockedError(`Guard blocked execution (${decision.reason || "policy_denied"})`, {
-        reason: decision.reason,
-        reasons: decision.reasons,
-        provider: decision.provider,
-      });
+      throw new GuardBlockedError(
+        `Guard blocked execution (${decision.reason ?? "policy_denied"})`,
+        { reasons: decision.reasons, provider: decision.provider },
+      );
     }
-
-    // escalate
     if (!lifecycle.enabled) {
-      throw new GuardBlockedError("Guard escalation is disabled and cannot proceed", {
-        reason: decision.reason,
-        reasons: decision.reasons,
-        provider: decision.provider,
-      });
+      throw new GuardBlockedError("Escalation is disabled; execution failed closed");
     }
 
+    const hooks = combinedHooks(config.hooks, handlers);
     try {
-      const requested = await lifecycle.requestEscalation(input, decision);
-      const escalationId = requested.created.id;
-      const escalateDecision: GuardDecision = {
+      const { payload, state, binding } = await lifecycle.requestEscalation(
+        inputSnapshot,
+        decision,
+      );
+      const escalationId = binding.escalationId;
+      const pendingDecision: GuardDecision = {
         ...decision,
-        escalation: {
-          shouldEscalate: true,
-          waitForResolution: handlers?.waitForEscalation ?? config.escalation?.waitForResolutionByDefault ?? true,
-          escalationId,
-          status: requested.created.status,
-        },
-      };
-
-      await Promise.resolve(mergedHooks.onEscalationRequested?.({
-        input,
-        decision: escalateDecision,
-        payload: requested.payload,
-        created: {
-          id: requested.created.id,
-          status: requested.created.status,
-        } as any,
-      }));
-
-      try {
-        await transport.sendPending({
-          escalationId,
-          input,
-          decision: escalateDecision,
-          payload: requested.payload,
-          createResult: {
-            id: requested.created.id,
-            status: requested.created.status,
-          } as any,
-        });
-      } catch (transportError: any) {
-        runtime.log({
-          level: "warn",
-          message: "guard transport pending notification failed",
-          data: { cause: transportError?.message || String(transportError) },
-        });
-      }
-
-      const resolution = await lifecycle.maybeWaitForResolution({
-        input,
-        decision: escalateDecision,
-        escalationId,
-        handlers: handlers as any,
-      });
-
-      if (!resolution) {
-        return {
-          decision: escalateDecision,
-        };
-      }
-
-      const finalizedDecision: GuardDecision = {
-        ...escalateDecision,
         escalation: {
           shouldEscalate: true,
           waitForResolution:
@@ -240,73 +195,160 @@ export function createSec0Guard(config: Sec0GuardConfig = {}): Sec0Guard {
             config.escalation?.waitForResolutionByDefault ??
             true,
           escalationId,
-          status: requested.created.status,
-          resolution,
+          status: state.status,
         },
       };
-
-      if (resolution.status === "approved") {
-        const value = await Promise.resolve(actionFn(input, finalizedDecision));
-        return {
-          decision: finalizedDecision,
-          escalation: resolution,
-          value,
-        };
-      }
-
-      if (handlers?.onBlock) {
-        const value = await Promise.resolve(handlers.onBlock(finalizedDecision));
-        return {
-          decision: finalizedDecision,
-          escalation: resolution,
-          value,
-        };
-      }
-
-      if (resolution.status === "timeout") {
-        throw new GuardEscalationTimeoutError("Escalation resolution timed out", {
+      await hooks.onEscalationRequested?.({
+        input: cloneGuardInput(inputSnapshot),
+        decision: pendingDecision,
+        payload,
+        created: state.request,
+      });
+      try {
+        await transport.sendPending({
           escalationId,
-          resolution,
+          input: cloneGuardInput(inputSnapshot),
+          decision: pendingDecision,
+          payload,
+          createResult: state.request,
+        });
+      } catch (error) {
+        runtime.log({
+          level: "warn",
+          message: "approval transport notification failed",
+          data: { cause: error instanceof Error ? error.message : String(error) },
         });
       }
 
-      throw new GuardBlockedError(`Escalation resolved as ${resolution.status}`, {
+      const resolution = await lifecycle.maybeWaitForResolution({
+        input: cloneGuardInput(inputSnapshot),
+        decision: pendingDecision,
         escalationId,
-        resolution,
+        binding,
+        handlers: handlers as GuardExecuteHandlers<unknown>,
       });
-    } catch (error: any) {
-      await lifecycle.emitEscalationError(
-        input,
-        decision,
-        error instanceof Error ? error : new Error(String(error)),
-        handlers as any,
+      if (!resolution) return { decision: pendingDecision };
+
+      const resolvedDecision: GuardDecision = {
+        ...pendingDecision,
+        escalation: {
+          ...pendingDecision.escalation!,
+          status: resolution.status,
+          resolution,
+        },
+      };
+      if (resolution.status === "approved" && resolution.resolution) {
+        const capabilityConfig =
+          config.escalation?.approvalCapability;
+        if (
+          !capabilityConfig ||
+          typeof capabilityConfig.getCapability !== "function"
+        ) {
+          throw new GuardBlockedError(
+            "Approved escalation is missing approval capability verification",
+            {
+              escalationId,
+              approvalId: resolution.resolution.id,
+              reason: "missing",
+            },
+          );
+        }
+
+        let capability: string | null | undefined;
+        try {
+          capability = await capabilityConfig.getCapability({
+            input: cloneGuardInput(inputSnapshot),
+            decision: structuredClone(resolvedDecision),
+            resolution: structuredClone(resolution),
+          });
+        } catch {
+          throw new GuardBlockedError(
+            "Approval capability could not be obtained",
+            {
+              escalationId,
+              approvalId: resolution.resolution.id,
+              reason: "capability_source_error",
+            },
+          );
+        }
+
+        const verification = await verifyApprovalCapability({
+          token: capability,
+          expected: {
+            escalationId: binding.escalationId,
+            approvalId: resolution.resolution.id,
+            action: binding.action,
+            scope: binding.scope,
+          },
+          nonceStore: capabilityConfig.nonceStore,
+          publicKey: capabilityConfig.publicKey,
+          expectedKeyId: capabilityConfig.expectedKeyId,
+          keyResolver: capabilityConfig.keyResolver,
+          now: runtime.now,
+          clockSkewMs: capabilityConfig.clockSkewMs,
+        });
+        if (!verification.valid) {
+          throw new GuardBlockedError(
+            `Approval capability verification failed (${verification.reason})`,
+            {
+              escalationId,
+              approvalId: resolution.resolution.id,
+              reason: verification.reason,
+            },
+          );
+        }
+
+        return {
+          decision: resolvedDecision,
+          escalation: resolution,
+          value: await action(
+            cloneGuardInput(inputSnapshot),
+            resolvedDecision,
+          ),
+        };
+      }
+      if (handlers?.onBlock) {
+        return {
+          decision: resolvedDecision,
+          escalation: resolution,
+          value: await handlers.onBlock(resolvedDecision),
+        };
+      }
+      throw new GuardBlockedError(
+        `Escalation resolved as ${resolution.status}`,
+        { escalationId },
       );
-      if (error instanceof GuardBlockedError || error instanceof GuardEscalationTimeoutError) {
+    } catch (error) {
+      const asError = error instanceof Error ? error : new Error(String(error));
+      await lifecycle.emitEscalationError(
+        cloneGuardInput(inputSnapshot),
+        decision,
+        asError,
+        handlers as GuardExecuteHandlers<unknown>,
+      );
+      if (
+        error instanceof GuardBlockedError ||
+        error instanceof GuardEscalationTimeoutError
+      ) {
         throw error;
       }
-      throw new GuardEscalationError(error?.message || "Escalation flow failed", {
-        cause: error?.message || String(error),
-      });
+      throw new GuardEscalationError(asError.message);
     }
-  }
-
-  async function waitForResolution(escalationId: string, opts?: GuardWaitForResolutionOptions) {
-    return lifecycle.waitForResolution(escalationId, opts);
   }
 
   return {
     check,
     execute,
-    waitForResolution,
+    waitForResolution(
+      escalationId: string,
+      options?: GuardWaitForResolutionOptions,
+    ) {
+      return lifecycle.waitForResolution(escalationId, options);
+    },
   };
 }
 
-export const createCoreaxGuard = createSec0Guard;
-
-export * from "./types";
-export type {
-  Sec0Guard as CoreaxGuard,
-  Sec0GuardConfig as CoreaxGuardConfig,
-} from "./types";
 export * from "./errors";
-export { createNoopApprovalTransport, createApprovalsBridgeTransport } from "./transport";
+export { isEscalationTerminal } from "./escalation";
+export { createNoopApprovalTransport } from "./transport";
+export * from "./types";

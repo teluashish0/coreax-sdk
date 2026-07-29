@@ -1,17 +1,23 @@
-import type {
-  EscalationCreateInput,
-  EscalationReporter,
-  EscalationResolver,
-} from "../core/contracts";
-import type { ControlPlaneClient } from "../middleware/adapters/controlPlaneClient";
 import {
-  Sec0EscalationAbortError,
-  Sec0EscalationError,
-  createEscalationManager,
-  isEscalationTerminal as isTerminalEscalationStatus,
-  type EscalationManager,
-} from "../review-loop";
-import { GuardAbortError, GuardEscalationError } from "./errors";
+  assertEscalationApproved,
+  CoreaxEscalationError,
+  EscalationAbortError,
+  EscalationTimeoutError,
+  createLocalEscalationManager,
+  escalationStatus,
+  type CreateEscalationInput,
+  type EscalationJsonObject,
+  type EscalationReporter,
+  type EscalationRequest,
+  type EscalationResolver,
+  type LocalEscalationManager,
+} from "../escalation";
+import {
+  GuardAbortError,
+  GuardEscalationError,
+  GuardEscalationTimeoutError,
+} from "./errors";
+import { canonicalize, sha256Hex } from "../signer";
 import type {
   GuardDecision,
   GuardEscalationLifecycleConfig,
@@ -24,112 +30,312 @@ import type {
   GuardWaitForResolutionOptions,
 } from "./types";
 
-type ResolvedEscalationLifecycleConfig = {
+type ResolvedLifecycleConfig = {
   enabled: boolean;
-  tenant?: string;
   waitForResolutionByDefault: boolean;
   timeoutMs: number;
   pollIntervalMs: number;
-  maxRetries: number;
-  retryBackoffMs: number;
-  ttlSeconds: number;
-  controlPlaneTimeoutMs?: number;
-  auth?: {
-    apiKey?: string;
-    bearerToken?: string;
-  };
-  controlPlaneUrl?: string;
-  client?: ControlPlaneClient;
+  ttlMs: number;
+  requestedBy?: string;
+  manager?: LocalEscalationManager;
   reporter?: EscalationReporter;
   resolver?: EscalationResolver;
 };
 
-function mapViolationSeverity(violation?: string): "low" | "medium" | "high" | "critical" {
-  const reason = String(violation || "").trim();
-  if (
-    reason === "registry_mutation" ||
-    reason === "handler_swap" ||
-    reason === "server_code_changed" ||
-    reason === "tool_code_changed"
-  ) {
-    return "critical";
-  }
-  if (
-    reason === "agent_guard_failed" ||
-    reason === "tool_not_in_allowlist" ||
-    reason === "version_unpinned"
-  ) {
-    return "high";
-  }
-  if (
-    reason === "egress_violation" ||
-    reason === "fs_violation" ||
-    reason === "missing_idempotency_for_side_effect"
-  ) {
-    return "medium";
-  }
-  return "low";
+function positiveInt(value: unknown, fallback: number): number {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0
+    ? Math.floor(number)
+    : fallback;
 }
 
-function normalizeLifecycleConfig(config?: GuardEscalationLifecycleConfig): ResolvedEscalationLifecycleConfig {
-  const timeoutMs = Number(config?.timeoutMs);
-  const pollIntervalMs = Number(config?.pollIntervalMs);
-  const maxRetries = Number(config?.maxRetries);
-  const retryBackoffMs = Number(config?.retryBackoffMs);
-  const ttlSeconds = Number(config?.ttlSeconds);
-  const controlPlaneTimeoutMs = Number(config?.controlPlaneTimeoutMs);
+function resolveConfig(
+  config: GuardEscalationLifecycleConfig | undefined,
+): ResolvedLifecycleConfig {
+  const hasLocalApprovalPath = Boolean(
+    config?.manager || config?.reporter || config?.resolver,
+  );
   return {
-    enabled: config?.enabled !== false,
-    tenant: typeof config?.tenant === "string" && config.tenant.trim() ? config.tenant.trim() : undefined,
-    waitForResolutionByDefault: config?.waitForResolutionByDefault !== false,
-    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.floor(timeoutMs) : 10 * 60 * 1000,
-    pollIntervalMs: Number.isFinite(pollIntervalMs) && pollIntervalMs > 0 ? Math.floor(pollIntervalMs) : 2_000,
-    maxRetries: Number.isFinite(maxRetries) && maxRetries >= 0 ? Math.floor(maxRetries) : 3,
-    retryBackoffMs: Number.isFinite(retryBackoffMs) && retryBackoffMs > 0 ? Math.floor(retryBackoffMs) : 250,
-    ttlSeconds: Number.isFinite(ttlSeconds) && ttlSeconds > 0 ? Math.floor(ttlSeconds) : 3600,
-    ...(Number.isFinite(controlPlaneTimeoutMs) && controlPlaneTimeoutMs > 0
-      ? { controlPlaneTimeoutMs: Math.floor(controlPlaneTimeoutMs) }
+    enabled:
+      config?.enabled === true ||
+      (config?.enabled !== false && hasLocalApprovalPath),
+    waitForResolutionByDefault:
+      config?.waitForResolutionByDefault !== false,
+    timeoutMs: positiveInt(config?.timeoutMs, 10 * 60 * 1000),
+    pollIntervalMs: positiveInt(config?.pollIntervalMs, 500),
+    ttlMs: positiveInt(config?.ttlSeconds, 15 * 60) * 1000,
+    ...(config?.requestedBy?.trim()
+      ? { requestedBy: config.requestedBy.trim() }
       : {}),
-    ...(config?.auth ? { auth: config.auth } : {}),
-    ...(config?.controlPlaneUrl ? { controlPlaneUrl: config.controlPlaneUrl } : {}),
-    ...(config?.client ? { client: config.client } : {}),
+    manager: config?.manager,
     reporter: config?.reporter,
     resolver: config?.resolver,
   };
 }
 
-function toEscalationPayload(input: GuardInput, decision: GuardDecision, cfg: ResolvedEscalationLifecycleConfig): EscalationCreateInput {
-  const violation = String(decision.violation || decision.reason || "policy_violation");
-  const contentText = (() => {
-    if (typeof input.content === "string") return input.content;
-    try {
-      return JSON.stringify(input.content ?? null);
-    } catch {
-      return String(input.content ?? "");
+function jsonValue(value: unknown): EscalationJsonObject[string] {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : String(value);
+  }
+  if (Array.isArray(value)) return value.map(jsonValue);
+  if (value && typeof value === "object") {
+    const output = Object.create(null) as EscalationJsonObject;
+    for (const [key, item] of Object.entries(value)) output[key] = jsonValue(item);
+    return output;
+  }
+  return String(value ?? "");
+}
+
+function assertCanonicalContent(
+  value: unknown,
+  path: string,
+  ancestors: Set<object>,
+): void {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new TypeError(`${path} contains a non-finite number`);
     }
-  })();
+    return;
+  }
+  if (!value || typeof value !== "object") {
+    throw new TypeError(`${path} must contain only canonical JSON values`);
+  }
+  if (ancestors.has(value)) {
+    throw new TypeError(`${path} must not contain cycles`);
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (
+    !Array.isArray(value) &&
+    prototype !== Object.prototype &&
+    prototype !== null
+  ) {
+    throw new TypeError(`${path} must contain only plain objects`);
+  }
+  ancestors.add(value);
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      assertCanonicalContent(value[index], `${path}[${index}]`, ancestors);
+    }
+  } else {
+    for (const [key, item] of Object.entries(value)) {
+      assertCanonicalContent(item, `${path}.${key}`, ancestors);
+    }
+  }
+  ancestors.delete(value);
+}
+
+function canonicalContentHash(content: unknown): string {
+  const normalized = content === undefined ? null : content;
+  assertCanonicalContent(normalized, "guard input.content", new Set<object>());
+  return sha256Hex(canonicalize(normalized));
+}
+
+function toCreateInput(
+  input: GuardInput,
+  decision: GuardDecision,
+  config: ResolvedLifecycleConfig,
+): CreateEscalationInput {
+  const target = input.target ?? input.context?.target;
+  const scope: EscalationJsonObject = {
+    kind: input.kind,
+    ...(target ? { target } : {}),
+    ...(input.context ? { context: jsonValue(input.context) } : {}),
+    contentSha256: canonicalContentHash(input.content),
+  };
   return {
-    ...(cfg.tenant ? { tenant: cfg.tenant } : {}),
-    content: contentText.slice(0, 4000),
-    violation,
-    message: violation.replace(/_/g, " "),
-    severity: mapViolationSeverity(violation),
-    nodeId: input.context?.nodeId,
-    agentRef: input.context?.runId,
+    action: target || input.kind,
+    scope,
+    reason: decision.violation || decision.reason || "policy_review_required",
+    ...(config.requestedBy ? { requestedBy: config.requestedBy } : {}),
     metadata: {
-      kind: input.kind,
-      target: input.target || input.context?.target || null,
-      tags: input.context?.tags || [],
-      reason: decision.reason,
-      reasons: decision.reasons,
+      policyHash: decision.provider.policyHash,
+      policySource: decision.provider.source,
+      reasons: jsonValue(decision.reasons),
     },
-    ttlSeconds: cfg.ttlSeconds,
+    ttlMs: config.ttlMs,
   };
 }
 
+export type GuardEscalationBinding = Readonly<{
+  escalationId: string;
+  action: string;
+  scope: EscalationJsonObject;
+  contentSha256: string;
+  request: EscalationRequest;
+  requestCanonical: string;
+}>;
+
+function deepFreeze<T>(value: T, seen = new Set<object>()): T {
+  if (!value || typeof value !== "object" || seen.has(value)) return value;
+  seen.add(value);
+  for (const item of Object.values(value as Record<string, unknown>)) {
+    deepFreeze(item, seen);
+  }
+  return Object.freeze(value);
+}
+
+function immutableSnapshot<T>(value: T, label: string): T {
+  try {
+    return deepFreeze(structuredClone(value));
+  } catch {
+    throw new GuardEscalationError(
+      `${label} must be structured-cloneable canonical state`,
+    );
+  }
+}
+
+function requestPayloadCanonical(
+  value: Pick<
+    CreateEscalationInput | EscalationRequest,
+    "action" | "scope" | "reason" | "requestedBy" | "metadata"
+  >,
+): string {
+  return canonicalize({
+    action: value.action,
+    scope: value.scope,
+    reason: value.reason,
+    requestedBy: value.requestedBy ?? null,
+    metadata: value.metadata ?? null,
+  });
+}
+
+function timestamp(value: unknown, label: string): number {
+  const milliseconds =
+    typeof value === "string" && value.trim() ? Date.parse(value) : Number.NaN;
+  if (!Number.isFinite(milliseconds)) {
+    throw new GuardEscalationError(
+      `Escalation manager returned an invalid ${label}`,
+    );
+  }
+  return milliseconds;
+}
+
+function bindCreatedEscalation(
+  payload: CreateEscalationInput,
+  state: GuardEscalationResolution,
+  now: number,
+): GuardEscalationBinding {
+  if (!Number.isFinite(now)) {
+    throw new GuardEscalationError(
+      "Escalation clock returned an invalid timestamp",
+    );
+  }
+  const escalationId = state?.request?.id;
+  if (
+    typeof escalationId !== "string" ||
+    !escalationId.trim() ||
+    escalationId !== escalationId.trim()
+  ) {
+    throw new GuardEscalationError(
+      "Escalation manager returned an invalid request ID",
+    );
+  }
+  if (
+    state.status !== "pending" ||
+    state.resolution !== null ||
+    (payload.id !== undefined && payload.id !== escalationId) ||
+    requestPayloadCanonical(state.request) !==
+      requestPayloadCanonical(payload)
+  ) {
+    throw new GuardEscalationError(
+      "Escalation manager substituted the canonical approval request",
+    );
+  }
+
+  const createdAt = timestamp(state.request.createdAt, "request.createdAt");
+  const expiresAt = timestamp(state.request.expiresAt, "request.expiresAt");
+  if (
+    createdAt > now ||
+    expiresAt <= now ||
+    !Number.isFinite(payload.ttlMs) ||
+    expiresAt - createdAt !== payload.ttlMs
+  ) {
+    throw new GuardEscalationError(
+      "Escalation manager changed the canonical approval window",
+    );
+  }
+
+  const scope = immutableSnapshot(payload.scope, "Escalation scope");
+  const contentSha256 = scope.contentSha256;
+  if (
+    typeof contentSha256 !== "string" ||
+    !/^[a-f0-9]{64}$/.test(contentSha256)
+  ) {
+    throw new GuardEscalationError(
+      "Escalation scope is missing its canonical content digest",
+    );
+  }
+  const request = immutableSnapshot(state.request, "Escalation request");
+  return Object.freeze({
+    escalationId,
+    action: payload.action,
+    scope,
+    contentSha256,
+    request,
+    requestCanonical: canonicalize(request),
+  });
+}
+
+function assertBoundResolution(
+  resolution: GuardEscalationResolution,
+  binding: GuardEscalationBinding,
+  now: number,
+): GuardEscalationResolution {
+  const snapshot = immutableSnapshot(
+    resolution,
+    "Escalation resolution",
+  );
+  if (
+    snapshot.request.id !== binding.escalationId ||
+    canonicalize(snapshot.request) !== binding.requestCanonical ||
+    snapshot.request.action !== binding.action ||
+    canonicalize(snapshot.request.scope) !== canonicalize(binding.scope) ||
+    snapshot.request.scope.contentSha256 !== binding.contentSha256 ||
+    (snapshot.resolution !== null &&
+      snapshot.resolution.escalationId !== binding.escalationId)
+  ) {
+    throw new GuardEscalationError(
+      "Escalation manager substituted the bound approval request",
+    );
+  }
+
+  let expectedStatus: GuardEscalationResolution["status"];
+  try {
+    expectedStatus = escalationStatus(
+      snapshot.request,
+      snapshot.resolution,
+      now,
+    );
+    if (expectedStatus === "approved") {
+      assertEscalationApproved(snapshot, now);
+    }
+  } catch {
+    throw new GuardEscalationError(
+      "Escalation manager returned an invalid approval state",
+    );
+  }
+  if (snapshot.status !== expectedStatus) {
+    throw new GuardEscalationError(
+      "Escalation manager returned a contradictory approval status",
+    );
+  }
+  return snapshot;
+}
+
 export class GuardEscalationLifecycle {
-  private readonly config: ResolvedEscalationLifecycleConfig;
-  private readonly manager: EscalationManager;
+  private readonly config: ResolvedLifecycleConfig;
+  private readonly manager: LocalEscalationManager;
+  private initializePromise: Promise<void> | null = null;
 
   constructor(
     config: GuardEscalationLifecycleConfig | undefined,
@@ -139,144 +345,152 @@ export class GuardEscalationLifecycle {
       sendResolved(event: GuardTransportResolvedEvent): Promise<void>;
     },
   ) {
-    this.config = normalizeLifecycleConfig(config);
-    this.manager = createEscalationManager({
-      tenant: this.config.tenant,
-      ...(this.config.controlPlaneTimeoutMs ? { controlPlaneTimeoutMs: this.config.controlPlaneTimeoutMs } : {}),
-      ...(this.config.auth?.apiKey ? { apiKey: this.config.auth.apiKey } : {}),
-      ...(this.config.auth?.bearerToken ? { bearerToken: this.config.auth.bearerToken } : {}),
-      ...(this.config.controlPlaneUrl ? { controlPlaneUrl: this.config.controlPlaneUrl } : {}),
-      ...(this.config.client ? { client: this.config.client } : {}),
-      reporter: this.config.reporter,
-      resolver: this.config.resolver,
-      timeoutMs: this.config.timeoutMs,
-      pollIntervalMs: this.config.pollIntervalMs,
-      maxRetries: this.config.maxRetries,
-      retryBackoffMs: this.config.retryBackoffMs,
-      defaults: {
-        ttlSeconds: this.config.ttlSeconds,
-      },
-      now: this.runtime.now,
-      sleep: this.runtime.sleep,
-    });
+    this.config = resolveConfig(config);
+    this.manager =
+      this.config.manager ??
+      createLocalEscalationManager({
+        reporter: this.config.reporter,
+        resolver: this.config.resolver,
+        defaultTtlMs: this.config.ttlMs,
+        now: runtime.now,
+        sleep: runtime.sleep,
+      });
   }
 
   get enabled(): boolean {
     return this.config.enabled;
   }
 
-  withFallbackReporter(reporter?: EscalationReporter): GuardEscalationLifecycle {
-    if (!reporter || this.config.reporter) return this;
-    return new GuardEscalationLifecycle(
-      {
-        ...this.config,
-        reporter,
-      },
-      this.runtime,
-      this.hooks,
-      this.transport,
+  private initialize(): Promise<void> {
+    this.initializePromise ??= this.manager.initialize();
+    return this.initializePromise;
+  }
+
+  buildEscalationPayload(
+    input: GuardInput,
+    decision: GuardDecision,
+  ): CreateEscalationInput {
+    return toCreateInput(input, decision, this.config);
+  }
+
+  async requestEscalation(input: GuardInput, decision: GuardDecision) {
+    await this.initialize();
+    const payload = immutableSnapshot(
+      this.buildEscalationPayload(input, decision),
+      "Escalation payload",
     );
-  }
-
-  withFallbackResolver(resolver?: EscalationResolver): GuardEscalationLifecycle {
-    if (!resolver || this.config.resolver) return this;
-    return new GuardEscalationLifecycle(
-      {
-        ...this.config,
-        resolver,
-      },
-      this.runtime,
-      this.hooks,
-      this.transport,
-    );
-  }
-
-  buildEscalationPayload(input: GuardInput, decision: GuardDecision): EscalationCreateInput {
-    return toEscalationPayload(input, decision, this.config);
-  }
-
-  async requestEscalation(input: GuardInput, decision: GuardDecision): Promise<{
-    payload: EscalationCreateInput;
-    created: { id: string; status: string };
-  }> {
-    const payload = this.buildEscalationPayload(input, decision);
     try {
-      const created = await this.manager.create(payload);
-      return {
+      const created = await this.manager.create(structuredClone(payload));
+      const state = immutableSnapshot(created, "Escalation state");
+      const binding = bindCreatedEscalation(
         payload,
-        created: { id: created.id, status: created.status },
-      };
-    } catch (error: any) {
-      throw new GuardEscalationError(error?.message || "Escalation flow failed", {
-        cause: error?.message || String(error),
-      });
+        state,
+        this.runtime.now(),
+      );
+      return { payload, state, binding };
+    } catch (error) {
+      throw this.mapError(error);
     }
   }
 
-  async waitForResolution(escalationId: string, options?: GuardWaitForResolutionOptions): Promise<GuardEscalationResolution> {
+  async waitForResolution(
+    escalationId: string,
+    options?: GuardWaitForResolutionOptions,
+  ): Promise<GuardEscalationResolution> {
+    await this.initialize();
     try {
-      return await this.manager.waitForResolution(escalationId, options);
-    } catch (error: any) {
-      if (error instanceof Sec0EscalationAbortError) {
-        throw new GuardAbortError(error.message, error.details);
-      }
-      if (error instanceof Sec0EscalationError) {
-        throw new GuardEscalationError(error.message, error.details);
-      }
-      throw new GuardEscalationError(error?.message || "Escalation flow failed", {
-        cause: error?.message || String(error),
+      const resolution = await this.manager.waitForResolution(escalationId, {
+        timeoutMs: options?.timeoutMs ?? this.config.timeoutMs,
+        pollIntervalMs: options?.pollIntervalMs ?? this.config.pollIntervalMs,
+        signal: options?.signal,
       });
+      return immutableSnapshot(resolution, "Escalation resolution");
+    } catch (error) {
+      throw this.mapError(error);
     }
   }
 
-  async maybeWaitForResolution(opts: {
+  async maybeWaitForResolution(options: {
     input: GuardInput;
     decision: GuardDecision;
     escalationId: string;
-    handlers?: GuardExecuteHandlers<any>;
+    binding: GuardEscalationBinding;
+    handlers?: GuardExecuteHandlers<unknown>;
   }): Promise<GuardEscalationResolution | null> {
-    const waitForEscalation = typeof opts.handlers?.waitForEscalation === "boolean"
-      ? opts.handlers.waitForEscalation
-      : this.config.waitForResolutionByDefault;
-    if (!waitForEscalation) return null;
-    const resolution = await this.waitForResolution(opts.escalationId);
-    try {
-      await Promise.resolve(this.hooks.onEscalationResolved?.({
-        input: opts.input,
-        decision: opts.decision,
-        resolution,
-      }));
-    } catch {}
-    try {
-      await Promise.resolve(opts.handlers?.onEscalationResolved?.({
-        input: opts.input,
-        decision: opts.decision,
-        resolution,
-      } as any));
-    } catch {}
-    if (this.transport) {
-      try {
-        await this.transport.sendResolved({
-          escalationId: opts.escalationId,
-          input: opts.input,
-          decision: opts.decision,
-          resolution,
-        });
-      } catch {}
-    }
+    const shouldWait =
+      options.handlers?.waitForEscalation ??
+      this.config.waitForResolutionByDefault;
+    if (!shouldWait) return null;
+
+    const resolution = assertBoundResolution(
+      await this.waitForResolution(options.escalationId),
+      options.binding,
+      this.runtime.now(),
+    );
+    await this.emitResolved(options.input, options.decision, resolution, options.handlers);
     return resolution;
   }
 
-  async emitEscalationError(input: GuardInput, decision: GuardDecision, error: Error, handlers?: GuardExecuteHandlers<any>): Promise<void> {
+  private async emitResolved(
+    input: GuardInput,
+    decision: GuardDecision,
+    resolution: GuardEscalationResolution,
+    handlers?: GuardExecuteHandlers<unknown>,
+  ): Promise<void> {
     try {
-      await Promise.resolve(this.hooks.onEscalationError?.({ input, decision, error }));
+      await this.hooks.onEscalationResolved?.({
+        input,
+        decision,
+        resolution: structuredClone(resolution),
+      });
     } catch {}
     try {
-      await Promise.resolve(handlers?.onEscalationError?.({ input, decision, error } as any));
+      await handlers?.onEscalationResolved?.({
+        input,
+        decision,
+        resolution: structuredClone(resolution),
+      });
     } catch {}
+    try {
+      await this.transport?.sendResolved({
+        escalationId: resolution.request.id,
+        input,
+        decision,
+        resolution: structuredClone(resolution),
+      });
+    } catch {}
+  }
+
+  async emitEscalationError(
+    input: GuardInput,
+    decision: GuardDecision,
+    error: Error,
+    handlers?: GuardExecuteHandlers<unknown>,
+  ): Promise<void> {
+    try {
+      await this.hooks.onEscalationError?.({ input, decision, error });
+    } catch {}
+    try {
+      await handlers?.onEscalationError?.({ input, decision, error });
+    } catch {}
+  }
+
+  private mapError(error: unknown): Error {
+    if (error instanceof EscalationAbortError) {
+      return new GuardAbortError(error.message);
+    }
+    if (error instanceof EscalationTimeoutError) {
+      return new GuardEscalationTimeoutError(error.message);
+    }
+    if (error instanceof CoreaxEscalationError) {
+      return new GuardEscalationError(error.message);
+    }
+    return new GuardEscalationError(
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }
 
 export function isEscalationTerminal(status: string): boolean {
-  return isTerminalEscalationStatus(status);
+  return status === "approved" || status === "rejected" || status === "expired";
 }

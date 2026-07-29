@@ -34,7 +34,7 @@ export function mergeEvaluatorInput(
       ...(extra.authority?.approvals ? { approvals: [...extra.authority.approvals] } : {}),
       ...(extra.authority?.delegations ? { delegations: [...extra.authority.delegations] } : {}),
     },
-    runtimeContext: {
+    runtimeContext: ({
       ...base.runtimeContext,
       ...(extra.runtimeContext || {}),
       ...(extra.runtimeContext?.workflowState ? { workflowState: { ...extra.runtimeContext.workflowState } } : {}),
@@ -44,7 +44,119 @@ export function mergeEvaluatorInput(
       ...(extra.runtimeContext?.unresolvedPrerequisites
         ? { unresolvedPrerequisites: [...extra.runtimeContext.unresolvedPrerequisites] }
         : {}),
-    },
+      ...(extra.runtimeContext?.verifiedPrerequisites
+        ? { verifiedPrerequisites: [...extra.runtimeContext.verifiedPrerequisites] }
+        : {}),
+      ...(extra.runtimeContext?.evidenceEvents
+        ? { evidenceEvents: [...extra.runtimeContext.evidenceEvents] }
+        : {}),
+      ...(extra.runtimeContext?.activeState
+        ? {
+            activeState: {
+              ...base.runtimeContext.activeState,
+              ...extra.runtimeContext.activeState,
+              ...(extra.runtimeContext.activeState.verifiedClaims
+                ? {
+                    verifiedClaims: [
+                      ...extra.runtimeContext.activeState.verifiedClaims,
+                    ],
+                  }
+                : {}),
+              ...(extra.runtimeContext.activeState.unresolvedClaims
+                ? {
+                    unresolvedClaims: [
+                      ...extra.runtimeContext.activeState.unresolvedClaims,
+                    ],
+                  }
+                : {}),
+              ...(extra.runtimeContext.activeState.supersededClaims
+                ? {
+                    supersededClaims: [
+                      ...extra.runtimeContext.activeState.supersededClaims,
+                    ],
+                  }
+                : {}),
+              ...(extra.runtimeContext.activeState.contradictedClaims
+                ? {
+                    contradictedClaims: [
+                      ...extra.runtimeContext.activeState.contradictedClaims,
+                    ],
+                  }
+                : {}),
+              ...(extra.runtimeContext.activeState.retrievalHints
+                ? {
+                    retrievalHints: [
+                      ...extra.runtimeContext.activeState.retrievalHints,
+                    ],
+                  }
+                : {}),
+            },
+          }
+        : {}),
+      ...(extra.runtimeContext?.retrievedEvidence
+        ? {
+            retrievedEvidence: {
+              ...base.runtimeContext.retrievedEvidence,
+              ...extra.runtimeContext.retrievedEvidence,
+              ...(extra.runtimeContext.retrievedEvidence.events
+                ? {
+                    events: [
+                      ...extra.runtimeContext.retrievedEvidence.events,
+                    ],
+                  }
+                : {}),
+              ...(extra.runtimeContext.retrievedEvidence.retrievalHints
+                ? {
+                    retrievalHints: [
+                      ...extra.runtimeContext.retrievedEvidence.retrievalHints,
+                    ],
+                  }
+                : {}),
+            },
+          }
+        : {}),
+    }) as EvaluatorInput["runtimeContext"],
+    ...(extra.proposal
+      ? {
+          proposal: {
+            ...(base.proposal || {}),
+            ...extra.proposal,
+            ...(extra.proposal.toolCall
+              ? {
+                  toolCall: {
+                    ...(base.proposal?.toolCall || {}),
+                    ...extra.proposal.toolCall,
+                    ...(extra.proposal.toolCall.arguments
+                      ? {
+                          arguments: {
+                            ...(base.proposal?.toolCall?.arguments || {}),
+                            ...extra.proposal.toolCall.arguments,
+                          },
+                        }
+                      : {}),
+                  },
+                }
+              : {}),
+          } as EvaluatorInput["proposal"],
+        }
+      : {}),
+    ...(extra.graphContext
+      ? { graphContext: [...extra.graphContext] as EvaluatorInput["graphContext"] }
+      : {}),
+    ...(extra.orchestrationState
+      ? {
+          orchestrationState: {
+            ...(base.orchestrationState || {}),
+            ...extra.orchestrationState,
+            ...(extra.orchestrationState.signalCodes
+              ? { signalCodes: [...extra.orchestrationState.signalCodes] }
+              : {}),
+            ...(extra.orchestrationState.missingFacts
+              ? { missingFacts: [...extra.orchestrationState.missingFacts] }
+              : {}),
+          } as EvaluatorInput["orchestrationState"],
+        }
+      : {}),
     sourceUse: {
       ...base.sourceUse,
       ...(extra.sourceUse || {}),
@@ -78,6 +190,116 @@ export function mergeEvaluatorInput(
           }
         : {}),
     }) as EvaluatorInput["constraints"],
+    workflowSlice: {
+      ...base.workflowSlice,
+      ...(extra.workflowSlice || {}),
+      ...(extra.workflowSlice?.parentSubmissionIds
+        ? { parentSubmissionIds: [...extra.workflowSlice.parentSubmissionIds] }
+        : {}),
+      ...(extra.workflowSlice?.boundaryCrossings
+        ? { boundaryCrossings: [...extra.workflowSlice.boundaryCrossings] }
+        : {}),
+    },
+    decisionHistory: {
+      ...base.decisionHistory,
+      ...(extra.decisionHistory || {}),
+      ...(extra.decisionHistory?.priorDecisions
+        ? { priorDecisions: [...extra.decisionHistory.priorDecisions] }
+        : {}),
+      ...(extra.decisionHistory?.priorDenies
+        ? { priorDenies: [...extra.decisionHistory.priorDenies] }
+        : {}),
+      ...(extra.decisionHistory?.priorEscalations
+        ? { priorEscalations: [...extra.decisionHistory.priorEscalations] }
+        : {}),
+      ...(extra.decisionHistory?.priorClarifications
+        ? {
+            priorClarifications: [
+              ...extra.decisionHistory.priorClarifications,
+            ],
+          }
+        : {}),
+      ...(extra.decisionHistory?.priorHumanResolutions
+        ? {
+            priorHumanResolutions: [
+              ...extra.decisionHistory.priorHumanResolutions,
+            ],
+          }
+        : {}),
+    } as EvaluatorInput["decisionHistory"],
+    executionHistory: {
+      ...base.executionHistory,
+      ...(extra.executionHistory || {}),
+      ...(extra.executionHistory?.recentExecutions
+        ? { recentExecutions: [...extra.executionHistory.recentExecutions] }
+        : {}),
+      ...(extra.executionHistory?.recentOutcomes
+        ? { recentOutcomes: [...extra.executionHistory.recentOutcomes] }
+        : {}),
+    } as EvaluatorInput["executionHistory"],
+    reflectionHistory: {
+      ...base.reflectionHistory,
+      ...(extra.reflectionHistory || {}),
+      ...(extra.reflectionHistory?.recentReflections
+        ? {
+            recentReflections: [
+              ...extra.reflectionHistory.recentReflections,
+            ],
+          }
+        : {}),
+      ...(extra.reflectionHistory?.persistentMissingFacts
+        ? {
+            persistentMissingFacts: [
+              ...extra.reflectionHistory.persistentMissingFacts,
+            ],
+          }
+        : {}),
+    } as EvaluatorInput["reflectionHistory"],
+    ...(extra.stateDeltas
+      ? { stateDeltas: [...extra.stateDeltas] as EvaluatorInput["stateDeltas"] }
+      : {}),
+    ...(extra.auditEvidence
+      ? {
+          auditEvidence: [
+            ...extra.auditEvidence,
+          ] as EvaluatorInput["auditEvidence"],
+        }
+      : {}),
+    derivedFacts: {
+      ...base.derivedFacts,
+      ...(extra.derivedFacts || {}),
+      ...Object.fromEntries(
+        [
+          "missingApprovals",
+          "verifiedFacts",
+          "missingFacts",
+          "supersededMissingFacts",
+          "suggestedQuestions",
+          "suggestedSources",
+          "resumeConditions",
+          "retryReasons",
+          "recentToolErrors",
+          "persistentReflectionMissingFacts",
+          "contradictoryState",
+        ]
+          .filter(
+            (key) =>
+              Array.isArray(
+                (extra.derivedFacts as Record<string, unknown> | undefined)?.[
+                  key
+                ],
+              ),
+          )
+          .map((key) => [
+            key,
+            [
+              ...((extra.derivedFacts as Record<string, unknown>)[
+                key
+              ] as unknown[]),
+            ],
+          ]),
+      ),
+    } as EvaluatorInput["derivedFacts"],
     metadata: {
       ...(base.metadata || {}),
       ...(extra.metadata || {}),

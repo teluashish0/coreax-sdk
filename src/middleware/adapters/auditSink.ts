@@ -1,23 +1,21 @@
-import { Sec0Appender, type Sec0Config } from "../../audit";
-import type { AuditSink } from "../../core/contracts";
-import type { Signer } from "../../signer";
+import {
+  CoreaxAppender,
+  type AuditSigner,
+  type CoreaxAuditConfig,
+} from "../../audit";
+import type { AuditSink } from "../../core";
 
-/**
- * @deprecated Use createCoreaxAuditSink for new integrations.
- */
-export function createSec0AuditSink(opts: { config: Sec0Config; signer: Signer }): AuditSink {
-  const appender = new Sec0Appender(opts);
+export function createCoreaxAuditSink(options: {
+  config?: CoreaxAuditConfig;
+  signer: AuditSigner;
+}): AuditSink {
+  const appender = new CoreaxAppender({
+    config: options.config ?? {},
+    signer: options.signer,
+  });
   return {
-    append(envelope) {
-      return appender.append(envelope);
-    },
-    appendRawPayload(event) {
-      return appender.appendRawPayload(event);
-    },
-    flush() {
-      return appender.flush();
-    },
+    initialize: () => appender.initialize(),
+    append: (envelope) => appender.append(envelope),
+    flush: () => appender.flush(),
   };
 }
-
-export const createCoreaxAuditSink = createSec0AuditSink;

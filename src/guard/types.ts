@@ -1,22 +1,20 @@
-import type { PolicyObject } from "../policy";
+import type { CoreaxPolicy } from "../policy";
 import type { AgentGuardFinding } from "../middleware/agentGuard";
-import type { ControlPlaneClient } from "../middleware/adapters/controlPlaneClient";
-import type { ControlPlanePolicySource } from "../middleware/controlPlanePolicy";
 import type {
-  EscalationResolution,
-  EscalationResolutionStatusMetadata,
-  EscalationWaitOptions,
-} from "../review-loop";
-import type {
-  EscalationCreateInput,
-  EscalationCreateResult,
-  EscalationResolver,
+  ApprovalKeyResolver,
+  ApprovalNonceStore,
+  ApprovalVerificationKey,
+  Awaitable,
+  CreateEscalationInput,
+  EscalationRequest,
+  EscalationState,
   EscalationReporter,
-  EscalationStatusResult,
-} from "../core/contracts";
+  EscalationResolver,
+  LocalEscalationManager,
+} from "../escalation";
 
-export type GuardMode = "standalone" | "dashboard" | "hybrid";
-export type GuardProviderPrecedence = "remote-first" | "local-first";
+export type GuardMode = "enforce" | "observe";
+export type GuardProviderPrecedence = "custom-first" | "local-first";
 export type GuardOutcome = "allow" | "redact" | "block" | "escalate";
 
 export type GuardInputKind =
@@ -32,6 +30,11 @@ export interface GuardInputContext {
   channelId?: string;
   target?: string;
   tags?: string[];
+  /**
+   * Filesystem paths supplied by the trusted execution harness. Never forward
+   * model-authored metadata into this field.
+   */
+  filesystemPaths?: string[];
   metadata?: Record<string, unknown>;
 }
 
@@ -62,7 +65,7 @@ export interface GuardPolicy {
   rules?: GuardRule[];
 }
 
-export type GuardPolicyInput = GuardPolicy | PolicyObject;
+export type GuardPolicyInput = GuardPolicy | CoreaxPolicy;
 
 export interface GuardLocalPolicyProviderConfig {
   policy?: GuardPolicyInput;
@@ -70,48 +73,54 @@ export interface GuardLocalPolicyProviderConfig {
   cacheTtlMs?: number;
 }
 
-export interface GuardHostedAuthConfig {
-  apiKey?: string;
-  bearerToken?: string;
-}
-
-export interface GuardCustomRemotePolicyProviderConfig {
+export interface GuardCustomPolicyProviderConfig {
   getPolicy(input: GuardInput): Promise<GuardProviderSnapshot | GuardPolicyInput>;
 }
-
-export interface GuardControlPlaneRemotePolicyProviderConfig {
-  auth?: GuardHostedAuthConfig;
-  source?: ControlPlanePolicySource;
-  controlPlaneUrl?: string;
-  debug?: boolean;
-  client?: ControlPlaneClient;
-}
-
-export type GuardRemotePolicyProviderConfig =
-  | GuardCustomRemotePolicyProviderConfig
-  | GuardControlPlaneRemotePolicyProviderConfig;
 
 export interface GuardProviderConfig {
   precedence?: GuardProviderPrecedence;
   local?: GuardLocalPolicyProviderConfig;
-  remote?: GuardRemotePolicyProviderConfig;
+  /** Explicit caller-supplied provider. CoreAX never performs network discovery. */
+  custom?: GuardCustomPolicyProviderConfig;
+}
+
+export interface GuardApprovalCapabilityContext {
+  input: GuardInput;
+  decision: GuardDecision;
+  resolution: GuardEscalationResolution;
+}
+
+/**
+ * Local verification inputs for an approval capability supplied after a
+ * resolution is available. Guarded execution fails closed when this
+ * configuration, the capability, its signing key, or replay state is missing.
+ */
+export interface GuardApprovalCapabilityConfig {
+  getCapability(
+    context: GuardApprovalCapabilityContext,
+  ): Awaitable<string | null | undefined>;
+  nonceStore: ApprovalNonceStore;
+  publicKey?: ApprovalVerificationKey;
+  expectedKeyId?: string;
+  keyResolver?:
+    | ApprovalKeyResolver
+    | ((
+        keyId: string,
+      ) => Awaitable<ApprovalVerificationKey | null>);
+  clockSkewMs?: number;
 }
 
 export interface GuardEscalationLifecycleConfig {
   enabled?: boolean;
-  tenant?: string;
   waitForResolutionByDefault?: boolean;
   timeoutMs?: number;
   pollIntervalMs?: number;
-  maxRetries?: number;
-  retryBackoffMs?: number;
   ttlSeconds?: number;
-  controlPlaneTimeoutMs?: number;
-  auth?: GuardHostedAuthConfig;
-  controlPlaneUrl?: string;
-  client?: ControlPlaneClient;
+  requestedBy?: string;
+  manager?: LocalEscalationManager;
   reporter?: EscalationReporter;
   resolver?: EscalationResolver;
+  approvalCapability?: GuardApprovalCapabilityConfig;
 }
 
 export interface GuardApprovalTransportCapabilities {
@@ -130,8 +139,8 @@ export type GuardTransportPendingEvent = {
   escalationId: string;
   input: GuardInput;
   decision: GuardDecision;
-  payload: EscalationCreateInput;
-  createResult: EscalationCreateResult;
+  payload: CreateEscalationInput;
+  createResult: EscalationRequest;
 };
 
 export type GuardTransportResolvedEvent = {
@@ -161,7 +170,7 @@ export interface GuardLogEvent {
   data?: Record<string, unknown>;
 }
 
-export interface Sec0GuardConfig {
+export interface CoreaxGuardConfig {
   mode?: GuardMode;
   provider?: GuardProviderConfig;
   escalation?: GuardEscalationLifecycleConfig;
@@ -174,7 +183,7 @@ export interface Sec0GuardConfig {
 
 export interface GuardDecisionProviderInfo {
   mode: GuardMode;
-  source: "local" | "remote" | "remote-cache" | "local-fallback";
+  source: "local" | "custom" | "local-fallback";
   policyHash: string;
   fallbackReason?: string;
 }
@@ -206,15 +215,13 @@ export interface GuardExecutionResult<T> {
   escalation?: GuardEscalationResolution;
 }
 
-export interface GuardEscalationStatusMetadata extends EscalationResolutionStatusMetadata {}
-
-export interface GuardEscalationResolution extends EscalationResolution {}
+export interface GuardEscalationResolution extends EscalationState {}
 
 export interface GuardEscalationRequestedEvent {
   input: GuardInput;
   decision: GuardDecision;
-  payload: EscalationCreateInput;
-  created: EscalationCreateResult;
+  payload: CreateEscalationInput;
+  created: EscalationRequest;
 }
 
 export interface GuardEscalationResolvedEvent {
@@ -235,7 +242,11 @@ export interface GuardExecuteHandlers<T> extends Partial<GuardHooks> {
   waitForEscalation?: boolean;
 }
 
-export interface GuardWaitForResolutionOptions extends EscalationWaitOptions {}
+export interface GuardWaitForResolutionOptions {
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  signal?: AbortSignal;
+}
 
 export interface GuardRuntimeContext {
   now: () => number;
@@ -246,7 +257,7 @@ export interface GuardRuntimeContext {
 export interface GuardProviderSnapshot {
   policy: GuardPolicyInput;
   hash: string;
-  source: "local" | "remote" | "remote-cache" | "local-fallback";
+  source: "local" | "custom" | "local-fallback";
   fallbackReason?: string;
 }
 
@@ -254,7 +265,7 @@ export interface GuardPolicyProvider {
   getPolicy(input: GuardInput): Promise<GuardProviderSnapshot>;
 }
 
-export interface Sec0Guard {
+export interface CoreaxGuard {
   check(input: GuardInput): Promise<GuardDecision>;
   execute<T>(
     input: GuardInput,

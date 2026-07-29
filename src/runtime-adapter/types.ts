@@ -1,11 +1,13 @@
 export const RUNTIME_PROTOCOL_VERSION = "2026-02-01" as const;
 
-export type RuntimeAdapterMode = "local" | "remote";
+export type RuntimeAdapterMode = "local";
 export type RuntimeDecisionAction = "allow" | "deny" | "escalate" | "clarify";
-export type RuntimeExecutionLayer = "middleware" | "gateway" | "decorator";
+export type RuntimeExecutionLayer =
+  | "middleware"
+  | "decorator"
+  | "custom-agent";
 export type RuntimeEnforcementMode = "observe" | "enforce";
 export type RuntimeEvaluationStrategy = "deny_on_match" | "deny_on_any";
-export type RuntimeFailureMode = "local" | "allow" | "deny";
 
 export interface RuntimeObligation {
   type: string;
@@ -22,9 +24,9 @@ export interface RuntimeDecisionInput {
   protocolVersion?: string;
   requestId?: string;
   context: {
-    integrationSurface: "sec0";
+    integrationSurface: "coreax";
     executionLayer: RuntimeExecutionLayer;
-    tenant?: string;
+    namespace?: string;
     server: string;
     tool: string;
     nodeId?: string;
@@ -47,7 +49,7 @@ export interface RuntimeDecisionInput {
 export interface RuntimeDecisionOutput {
   protocolVersion: string;
   adapterMode: RuntimeAdapterMode;
-  evaluationSource: "local" | "remote" | "fallback-local" | "fallback-allow" | "fallback-deny";
+  evaluationSource: "local" | "custom";
   decision: RuntimeDecisionAction;
   reason?: string;
   reasons: string[];
@@ -55,47 +57,15 @@ export interface RuntimeDecisionOutput {
   auditRefs: RuntimeAuditRef[];
 }
 
-export interface RuntimeRemoteAdapterConfig {
-  endpoint?: string;
-  timeoutMs?: number;
-  maxRetries?: number;
-  retryBackoffMs?: number;
-  headers?: Record<string, string>;
-  apiKey?: string;
-}
-
 export interface RuntimeAdapterConfig {
-  mode?: RuntimeAdapterMode;
   protocolVersion?: string;
-  failureMode?: RuntimeFailureMode;
-  remote?: RuntimeRemoteAdapterConfig;
 }
 
 export interface ResolvedRuntimeAdapterConfig {
   mode: RuntimeAdapterMode;
   protocolVersion: string;
-  failureMode: RuntimeFailureMode;
-  remote: {
-    endpoint?: string;
-    timeoutMs: number;
-    maxRetries: number;
-    retryBackoffMs: number;
-    headers: Record<string, string>;
-    apiKey?: string;
-  };
 }
 
 export interface RuntimeAdapter {
   evaluate(input: RuntimeDecisionInput): Promise<RuntimeDecisionOutput>;
-}
-
-export interface RuntimeProtocolDecisionResponse {
-  protocolVersion?: unknown;
-  decision?: {
-    action?: unknown;
-    reason?: unknown;
-    reasons?: unknown;
-    obligations?: unknown;
-    auditRefs?: unknown;
-  };
 }

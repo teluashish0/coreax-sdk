@@ -17,13 +17,15 @@ function pickDenyReason(input: ReturnType<typeof normalizeRuntimeDecisionInput>)
 }
 
 export class LocalRuntimeAdapter implements RuntimeAdapter {
+  constructor(private readonly protocolVersion: string = RUNTIME_PROTOCOL_VERSION) {}
+
   async evaluate(input: RuntimeDecisionInput): Promise<RuntimeDecisionOutput> {
-    const normalized = normalizeRuntimeDecisionInput(input, RUNTIME_PROTOCOL_VERSION);
+    const normalized = normalizeRuntimeDecisionInput(input, this.protocolVersion);
     const reasons = normalized.input.reasons;
     const hasReasons = reasons.length > 0;
 
     let deny = false;
-    if (normalized.enforcement.forceDeny && hasReasons) {
+    if (normalized.enforcement.forceDeny) {
       deny = true;
     } else if (normalized.enforcement.mode === "enforce") {
       if (normalized.enforcement.strategy === "deny_on_any") {

@@ -2,10 +2,6 @@ import {
   RUNTIME_PROTOCOL_VERSION,
   type RuntimeDecisionAction,
   type RuntimeDecisionInput,
-  type RuntimeDecisionOutput,
-  type RuntimeObligation,
-  type RuntimeAuditRef,
-  type RuntimeProtocolDecisionResponse,
 } from "./types";
 
 export interface NormalizedRuntimeDecisionInput extends RuntimeDecisionInput {
@@ -50,7 +46,8 @@ export function normalizeRuntimeDecisionInput(
     typeof input?.protocolVersion === "string" && input.protocolVersion.trim()
       ? input.protocolVersion.trim()
       : fallbackProtocolVersion;
-  const mode = input?.enforcement?.mode === "enforce" ? "enforce" : "observe";
+  const mode =
+    input?.enforcement?.mode === "observe" ? "observe" : "enforce";
   const strategy = input?.enforcement?.strategy === "deny_on_any" ? "deny_on_any" : "deny_on_match";
   const denyOn = normalizeStringArray(input?.enforcement?.denyOn);
   const forceDeny = input?.enforcement?.forceDeny === true;
@@ -66,11 +63,14 @@ export function normalizeRuntimeDecisionInput(
     protocolVersion,
     requestId: typeof input?.requestId === "string" && input.requestId.trim() ? input.requestId.trim() : undefined,
     context: {
-      integrationSurface: "sec0",
+      integrationSurface: "coreax",
       executionLayer: input?.context?.executionLayer ?? "middleware",
       server: String(input?.context?.server ?? "unknown"),
       tool: String(input?.context?.tool ?? "unknown"),
-      ...(typeof input?.context?.tenant === "string" && input.context.tenant.trim() ? { tenant: input.context.tenant.trim() } : {}),
+      ...(typeof input?.context?.namespace === "string" &&
+      input.context.namespace.trim()
+        ? { namespace: input.context.namespace.trim() }
+        : {}),
       ...(typeof input?.context?.nodeId === "string" && input.context.nodeId.trim() ? { nodeId: input.context.nodeId.trim() } : {}),
       ...(typeof input?.context?.runId === "string" && input.context.runId.trim() ? { runId: input.context.runId.trim() } : {}),
       ...(input?.context?.metadata && typeof input.context.metadata === "object" && !Array.isArray(input.context.metadata)
@@ -88,70 +88,5 @@ export function normalizeRuntimeDecisionInput(
       riskTags,
       attributes,
     },
-  };
-}
-
-function normalizeObligations(value: unknown): RuntimeObligation[] {
-  if (!Array.isArray(value)) return [];
-  const out: RuntimeObligation[] = [];
-  for (const entry of value) {
-    if (!entry || typeof entry !== "object") continue;
-    const type = String((entry as any).type ?? "").trim();
-    if (!type) continue;
-    const paramsRaw = (entry as any).params;
-    const params = paramsRaw && typeof paramsRaw === "object" && !Array.isArray(paramsRaw) ? paramsRaw : undefined;
-    out.push({ type, ...(params ? { params } : {}) });
-  }
-  return out;
-}
-
-function normalizeAuditRefs(value: unknown): RuntimeAuditRef[] {
-  if (!Array.isArray(value)) return [];
-  const out: RuntimeAuditRef[] = [];
-  for (const entry of value) {
-    if (!entry || typeof entry !== "object") continue;
-    const ref = String((entry as any).ref ?? "").trim();
-    if (!ref) continue;
-    const kind = String((entry as any).kind ?? "").trim();
-    const href = String((entry as any).href ?? "").trim();
-    out.push({ ref, ...(kind ? { kind } : {}), ...(href ? { href } : {}) });
-  }
-  return out;
-}
-
-export function parseRuntimeProtocolResponse(
-  payload: RuntimeProtocolDecisionResponse,
-  adapterMode: RuntimeDecisionOutput["adapterMode"],
-): RuntimeDecisionOutput {
-  const protocolVersion =
-    typeof payload?.protocolVersion === "string" && payload.protocolVersion.trim()
-      ? payload.protocolVersion.trim()
-      : RUNTIME_PROTOCOL_VERSION;
-  const action = normalizeDecisionAction(payload?.decision?.action);
-  if (!action) {
-    throw new Error("runtime_response_invalid_decision");
-  }
-  const reasons = normalizeStringArray(payload?.decision?.reasons);
-  const primaryReasonRaw = typeof payload?.decision?.reason === "string" ? payload.decision.reason.trim() : "";
-  const reason = primaryReasonRaw || (action !== "allow" ? reasons[0] : undefined);
-  return {
-    protocolVersion,
-    adapterMode,
-    evaluationSource: "remote",
-    decision: action,
-    reasons,
-    ...(reason ? { reason } : {}),
-    obligations: normalizeObligations(payload?.decision?.obligations),
-    auditRefs: normalizeAuditRefs(payload?.decision?.auditRefs),
-  };
-}
-
-export function withEvaluationSource(
-  output: RuntimeDecisionOutput,
-  evaluationSource: RuntimeDecisionOutput["evaluationSource"],
-): RuntimeDecisionOutput {
-  return {
-    ...output,
-    evaluationSource,
   };
 }
