@@ -1,8 +1,46 @@
-# CoreAX SDK
+<h1 align="center">CoreAX</h1>
 
-CoreAX is a standalone TypeScript security boundary for untrusted AI and agent
-actions. It evaluates proposed actions before caller-owned code executes them,
-records verifiable local evidence, and keeps every integration explicit.
+<h3 align="center"><strong>The safest way to monitor, enforce context-aware guardrails, and improve your AI agents as conditions change</strong></h3>
+<p align="center"><em>CoreAX is an open-source Runtime Assurance SDK for AI agents in production.</em></p>
+<p align="center"><em>Built to interoperate with any stack.</em></p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@coreax/sdk"><img src="https://img.shields.io/npm/v/%40coreax%2Fsdk" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@coreax/sdk"><img src="https://img.shields.io/npm/dm/%40coreax%2Fsdk" alt="npm downloads"></a>
+  <a href="https://github.com/teluashish0/coreax-sdk/blob/main/LICENSE"><img src="https://img.shields.io/github/license/teluashish0/coreax-sdk" alt="license"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/teluashish0/coreax-sdk">Repository</a> •
+  <a href="#modules">Modules</a> •
+  <a href="#security-guarantees">Security guarantees</a>
+</p>
+
+---
+
+<p align="center">
+  <img width="600" alt="Context-aware, self-correcting security boundary for AI agents as they evolve" src="./public/coreax-image.png" />
+</p>
+
+---
+
+## What is CoreAX?
+
+CoreAX, or Core Agent Experience, is an open-source SDK for governing AI
+workflows with context-aware guardrails that evolve alongside your agents. It
+captures and curates high-quality local trajectory data from orchestrator
+decisions, agent actions, tool calls, policy outcomes, and human-in-the-loop
+interventions to support safe, continuous agent improvement.
+
+Models change, prompts evolve, tools are added, and attack techniques adapt.
+CoreAX provides a self-correcting security boundary that observes behavior,
+enforces deterministic constraints before side effects, preserves verifiable
+evidence, and proposes constrained improvements without granting itself new
+permissions.
+
+The SDK is standalone and offline-capable. It evaluates untrusted AI and agent
+actions before caller-owned code executes them, and every external integration
+remains explicit and caller-controlled.
 
 CoreAX requires Node.js 20 or newer.
 
