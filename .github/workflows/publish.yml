@@ -4,18 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish the already-pushed v1.0.0 tag
+        description: Publish the already-pushed v1.0.1 tag
         required: false
         default: false
         type: boolean
       version:
-        description: Type 1.0.0 to confirm the package version
+        description: Type 1.0.1 to confirm the package version
         required: true
         type: string
 
 jobs:
   publish:
-    if: ${{ github.ref == 'refs/tags/v1.0.0' }}
+    if: ${{ github.ref == 'refs/tags/v1.0.1' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -36,9 +36,9 @@ jobs:
         run: npm run verify
 
       - name: Publish @coreax/sdk
-        if: ${{ github.event.inputs.publish == 'true' && github.event.inputs.version == '1.0.0' }}
+        if: ${{ github.event.inputs.publish == 'true' && github.event.inputs.version == '1.0.1' }}
         env:
           COREAX_PUBLISH_APPROVED: "1"
           COREAX_PUBLISH_PACKAGE: "@coreax/sdk"
-          COREAX_PUBLISH_VERSION: "1.0.0"
+          COREAX_PUBLISH_VERSION: "1.0.1"
         run: npm publish --provenance --access public

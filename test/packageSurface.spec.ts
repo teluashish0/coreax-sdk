@@ -80,11 +80,11 @@ function sourceEntrypoint(
 }
 
 describe("@coreax/sdk package surface", () => {
-  it("uses the canonical standalone 1.0.0 metadata", () => {
+  it("uses the canonical standalone 1.0.1 metadata", () => {
     expect(packageJson).toMatchObject({
       name: "@coreax/sdk",
       private: false,
-      version: "1.0.0",
+      version: "1.0.1",
       description:
         "Standalone deterministic security boundary for untrusted AI and agent actions.",
       license: "MIT",
