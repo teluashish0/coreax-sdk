@@ -95,7 +95,13 @@ describe("@coreax/sdk package surface", () => {
       },
       main: "dist/index.js",
       types: "dist/index.d.ts",
-      files: ["dist", "README.md", "LICENSE", "NOTICE"],
+      files: [
+        "dist",
+        "public/coreax-image.png",
+        "README.md",
+        "LICENSE",
+        "NOTICE",
+      ],
       publishConfig: {
         access: "public",
       },

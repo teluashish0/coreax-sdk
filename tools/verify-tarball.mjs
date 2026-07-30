@@ -121,12 +121,24 @@ try {
     "NOTICE",
     "README.md",
     "package.json",
+    "public",
   ]);
   const unexpected = fs
     .readdirSync(packageRoot)
     .filter((entry) => !allowedTopLevel.has(entry));
   if (unexpected.length) {
     throw new Error(`Unexpected tarball entries: ${unexpected.join(", ")}`);
+  }
+  const packagedPublicFiles = relativeFiles(
+    path.join(packageRoot, "public"),
+  );
+  if (
+    packagedPublicFiles.length !== 1 ||
+    packagedPublicFiles[0] !== "coreax-image.png"
+  ) {
+    throw new Error(
+      `Unexpected public assets: ${packagedPublicFiles.join(", ")}`,
+    );
   }
 
   const packageJson = JSON.parse(
