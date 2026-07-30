@@ -4,9 +4,9 @@
 
 <h1 align="center">CoreAX</h1>
 
-<h3 align="center"><strong>The safest way to monitor, enforce context-aware guardrails, and improve your AI agents as conditions change</strong></h3>
-<p align="center"><em>CoreAX is an open-source Runtime Assurance SDK for AI agents in production.</em></p>
-<p align="center"><em>Built to interoperate with any stack.</em></p>
+<h3 align="center"><strong>Open-source Runtime Assurance SDK for any AI agent in production.</strong></h3>
+<p align="center"><em></em></p>
+<p align="center"><em>The safest way to monitor, enforce context-aware guardrails, and improve your AI agents as conditions change.</em></p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@coreax/sdk"><img src="https://img.shields.io/npm/v/%40coreax%2Fsdk" alt="npm version"></a>
