@@ -3,7 +3,7 @@
   "private": false,
   "version": "1.0.0",
   "description": "Standalone deterministic security boundary for untrusted AI and agent actions.",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "author": "WormAI, Inc.",
   "packageManager": "npm@10.8.2",
   "engines": {
@@ -77,6 +77,9 @@
   "files": [
     "dist",
     "public/coreax-image.png",
+    "public/coreax-logo-adaptive.svg",
+    "public/coreax-logo-black.png",
+    "public/coreax-logo-white.png",
     "README.md",
     "LICENSE",
     "NOTICE"

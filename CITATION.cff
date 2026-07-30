@@ -6,6 +6,6 @@ authors:
     given-names: "Ashish"
   - name: "WormAI, Inc."
 version: "1.0.0"
-license: "Apache-2.0"
+license: "MIT"
 repository-code: "https://github.com/teluashish0/coreax-sdk"
 url: "https://github.com/teluashish0/coreax-sdk"

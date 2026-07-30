@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/teluashish0/coreax-sdk/main/public/coreax-logo-adaptive.svg" alt="CoreAX logo" width="70">
+</p>
+
 <h1 align="center">CoreAX</h1>
 
 <h3 align="center"><strong>The safest way to monitor, enforce context-aware guardrails, and improve your AI agents as conditions change</strong></h3>

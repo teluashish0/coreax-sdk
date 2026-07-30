@@ -132,9 +132,17 @@ try {
   const packagedPublicFiles = relativeFiles(
     path.join(packageRoot, "public"),
   );
+  const expectedPublicFiles = [
+    "coreax-image.png",
+    "coreax-logo-adaptive.svg",
+    "coreax-logo-black.png",
+    "coreax-logo-white.png",
+  ];
   if (
-    packagedPublicFiles.length !== 1 ||
-    packagedPublicFiles[0] !== "coreax-image.png"
+    packagedPublicFiles.length !== expectedPublicFiles.length ||
+    packagedPublicFiles.some(
+      (entry, index) => entry !== expectedPublicFiles[index],
+    )
   ) {
     throw new Error(
       `Unexpected public assets: ${packagedPublicFiles.join(", ")}`,
@@ -144,6 +152,36 @@ try {
   const packageJson = JSON.parse(
     fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"),
   );
+  if (packageJson.license !== "MIT") {
+    throw new Error(`Unexpected package license: ${packageJson.license}`);
+  }
+  const packagedLicense = fs.readFileSync(
+    path.join(packageRoot, "LICENSE"),
+    "utf8",
+  );
+  if (!packagedLicense.startsWith("MIT License\n")) {
+    throw new Error("Packaged LICENSE is not the canonical MIT license");
+  }
+  const packagedReadme = fs.readFileSync(
+    path.join(packageRoot, "README.md"),
+    "utf8",
+  );
+  const adaptiveLogoUrl =
+    "https://raw.githubusercontent.com/teluashish0/coreax-sdk/main/public/coreax-logo-adaptive.svg";
+  if (!packagedReadme.includes(adaptiveLogoUrl)) {
+    throw new Error("Packaged README does not use the adaptive CoreAX logo");
+  }
+  const adaptiveLogo = fs.readFileSync(
+    path.join(packageRoot, "public", "coreax-logo-adaptive.svg"),
+    "utf8",
+  );
+  if (
+    !adaptiveLogo.includes(".coreax-logo { fill: #000; }") ||
+    !adaptiveLogo.includes("@media (prefers-color-scheme: dark)") ||
+    !adaptiveLogo.includes(".coreax-logo { fill: #fff; }")
+  ) {
+    throw new Error("Packaged CoreAX logo is not theme adaptive");
+  }
   for (const [subpath, target] of Object.entries(packageJson.exports)) {
     if (subpath === "./package.json") continue;
     for (const relativeTarget of Object.values(target)) {

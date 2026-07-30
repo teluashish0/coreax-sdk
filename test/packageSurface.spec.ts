@@ -87,7 +87,7 @@ describe("@coreax/sdk package surface", () => {
       version: "1.0.0",
       description:
         "Standalone deterministic security boundary for untrusted AI and agent actions.",
-      license: "Apache-2.0",
+      license: "MIT",
       author: "WormAI, Inc.",
       packageManager: "npm@10.8.2",
       engines: {
@@ -98,6 +98,9 @@ describe("@coreax/sdk package surface", () => {
       files: [
         "dist",
         "public/coreax-image.png",
+        "public/coreax-logo-adaptive.svg",
+        "public/coreax-logo-black.png",
+        "public/coreax-logo-white.png",
         "README.md",
         "LICENSE",
         "NOTICE",
@@ -149,5 +152,26 @@ describe("@coreax/sdk package surface", () => {
   it("exports only the package manifest as a JSON subpath", () => {
     expect(packageJson.exports["./package.json"]).toBe("./package.json");
     expect(fs.statSync(PACKAGE_JSON_PATH).isFile()).toBe(true);
+  });
+
+  it("uses one self-theming logo on GitHub and npm", () => {
+    const readme = fs.readFileSync(
+      path.join(PACKAGE_DIR, "README.md"),
+      "utf8",
+    );
+    expect(readme).toContain(
+      'src="https://raw.githubusercontent.com/teluashish0/coreax-sdk/main/public/coreax-logo-adaptive.svg"',
+    );
+
+    const adaptiveLogo = fs.readFileSync(
+      path.join(PACKAGE_DIR, "public", "coreax-logo-adaptive.svg"),
+      "utf8",
+    );
+    expect(adaptiveLogo).toContain(".coreax-logo { fill: #000; }");
+    expect(adaptiveLogo).toContain(
+      "@media (prefers-color-scheme: dark)",
+    );
+    expect(adaptiveLogo).toContain(".coreax-logo { fill: #fff; }");
+    expect(adaptiveLogo).toContain("data:image/png;base64,");
   });
 });
