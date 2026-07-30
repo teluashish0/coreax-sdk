@@ -80,11 +80,11 @@ function sourceEntrypoint(
 }
 
 describe("@coreax/sdk package surface", () => {
-  it("uses the canonical standalone 1.0.1 metadata", () => {
+  it("uses the canonical standalone 1.0.2 metadata", () => {
     expect(packageJson).toMatchObject({
       name: "@coreax/sdk",
       private: false,
-      version: "1.0.1",
+      version: "1.0.2",
       description:
         "Standalone deterministic security boundary for untrusted AI and agent actions.",
       license: "MIT",
@@ -172,6 +172,10 @@ describe("@coreax/sdk package surface", () => {
       "@media (prefers-color-scheme: dark)",
     );
     expect(adaptiveLogo).toContain(".coreax-logo { fill: #fff; }");
+    expect(adaptiveLogo).toContain('filter id="coreax-outline"');
+    expect(adaptiveLogo).toContain(
+      '<feMorphology in="SourceAlpha" operator="dilate"',
+    );
     expect(adaptiveLogo).toContain("data:image/png;base64,");
   });
 });

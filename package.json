@@ -1,7 +1,7 @@
 {
   "name": "@coreax/sdk",
   "private": false,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Standalone deterministic security boundary for untrusted AI and agent actions.",
   "license": "MIT",
   "author": "WormAI, Inc.",

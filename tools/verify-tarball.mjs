@@ -178,7 +178,11 @@ try {
   if (
     !adaptiveLogo.includes(".coreax-logo { fill: #000; }") ||
     !adaptiveLogo.includes("@media (prefers-color-scheme: dark)") ||
-    !adaptiveLogo.includes(".coreax-logo { fill: #fff; }")
+    !adaptiveLogo.includes(".coreax-logo { fill: #fff; }") ||
+    !adaptiveLogo.includes('filter id="coreax-outline"') ||
+    !adaptiveLogo.includes(
+      '<feMorphology in="SourceAlpha" operator="dilate"',
+    )
   ) {
     throw new Error("Packaged CoreAX logo is not theme adaptive");
   }
