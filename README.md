@@ -1,25 +1,7 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/teluashish0/coreax-sdk/main/public/coreax-logo-adaptive.svg" alt="CoreAX logo" width="70">
-</p>
-
 <h1 align="center">CoreAX</h1>
-
 <h3 align="center"><strong>Open-source Runtime Assurance SDK for any AI agent in production.</strong></h3>
 <p align="center"><em></em></p>
-<p align="center"><em>The safest way to monitor, enforce context-aware guardrails, and improve your AI agents as conditions change.</em></p>
-
-<p align="center">
-  <a href="https://www.npmjs.com/package/@coreax/sdk"><img src="https://img.shields.io/npm/v/%40coreax%2Fsdk" alt="npm version"></a>
-  <a href="https://www.npmjs.com/package/@coreax/sdk"><img src="https://img.shields.io/npm/dm/%40coreax%2Fsdk" alt="npm downloads"></a>
-  <a href="https://github.com/teluashish0/coreax-sdk/blob/main/LICENSE"><img src="https://img.shields.io/github/license/teluashish0/coreax-sdk" alt="license"></a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/teluashish0/coreax-sdk">Repository</a> •
-  <a href="#implementation-flows">Implementation flows</a> •
-  <a href="#modules">Modules</a> •
-  <a href="#security-guarantees">Security guarantees</a>
-</p>
+<p align="center"><em>Monitor, enforce context-aware guardrails, and improve your AI agent safety as conditions change.</em></p>
 
 ---
 
